@@ -65,6 +65,7 @@ uvicorn bot:app --reload
 
 ## 🛠️ Technologie
 
+
 - **FastAPI** - Web Framework
 - **python-telegram-bot** - Telegram Bot API
 - **ChromaDB** - Vector Database für semantische Suche
@@ -72,6 +73,7 @@ uvicorn bot:app --reload
 - **Ollama** - Lokale LLM-Verarbeitung
 - **Docker** - Containerisierung
 
+<<<<<<< HEAD
 ## 📝 Lizenz
 
 MIT License - Frei verwendbar für private und kommerzielle Projekte.
@@ -83,3 +85,12 @@ Pull Requests sind willkommen! Für größere Änderungen öffne bitte zuerst ei
 ---
 
 **Entwickelt mit ❤️ für die Community**
+=======
+##  Lizenz
+
+MIT License - Frei verwendbar für private und kommerzielle Projekte.
+
+##  Beitragen
+
+Pull Requests sind willkommen! Für größere Änderungen öffne bitte zuerst ein Issue.
+>>>>>>> 6f16d9789a007d9dbe7500c1ad9b250c2d0cd4fd
