@@ -84,12 +84,16 @@ async def lifespan(app: FastAPI):
     try:
         pdfs = [f for f in os.listdir() if f.lower().endswith(".pdf")]
         if pdfs:
-            index_pdfs(pdfs)  # Erstellt Embeddings und speichert in ChromaDB
-            print(f"{len(pdfs)} PDFs indexiert.")
+            print(f"Found {len(pdfs)} PDFs, starting indexing...")
+            # Nur die ersten 3 PDFs indexieren um Memory zu sparen
+            pdfs_to_index = pdfs[:3]
+            index_pdfs(pdfs_to_index)  # Erstellt Embeddings und speichert in ChromaDB
+            print(f"{len(pdfs_to_index)} PDFs indexiert.")
         else:
             print("Keine PDFs gefunden zum Indexieren.")
     except Exception as e:
         print(f"[WARNING] PDF indexing failed: {e}")
+        print("Bot will start without PDF indexing")
     # WEBHOOK KONFIGURATION
     # Zweck: Teilt Telegram mit, wo Updates hingesendet werden sollen
     # Webhook vs Polling: Webhook = Push, Polling = Pull
