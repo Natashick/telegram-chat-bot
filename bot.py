@@ -7,7 +7,7 @@ import os
 from fastapi import FastAPI, Request, Response
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ChatMemberHandler
-from handlers import start, select_document, button, handle_message, greet_on_new_chat, screenshot_command, main_message_router
+from handlers import start, select_document, button, handle_message, greet_on_new_chat, screenshot_command, upload_pdf_command, main_message_router
 from vector_store import index_pdfs
 from contextlib import asynccontextmanager
 import asyncio
@@ -55,8 +55,10 @@ async def lifespan(app: FastAPI):
     # Zweck: Definiert welche Funktionen auf welche Telegram-Events reagieren
     app_bot.add_handler(CommandHandler("start", start))  # /start Kommando
     app_bot.add_handler(CommandHandler("select", select_document))  # /select Kommando
+    app_bot.add_handler(CommandHandler("upload", upload_pdf_command))  # /upload Kommando
     app_bot.add_handler(CallbackQueryHandler(button))  # Inline-Button Klicks
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_router))  # Text-Nachrichten
+    app_bot.add_handler(MessageHandler(filters.Document.ALL, main_message_router))  # PDF Uploads
     app_bot.add_handler(ChatMemberHandler(greet_on_new_chat, chat_member_types=["my_chat_member"]))  # Bot zu Chat hinzugefügt
     app_bot.add_handler(CommandHandler("screenshot", screenshot_command))  # /screenshot Kommando (VIEW-ONLY)
     # Bot starten (Polling/Webhook Modus aktivieren)

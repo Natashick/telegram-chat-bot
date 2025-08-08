@@ -15,38 +15,20 @@
 # "slim" = klein aber funktional (vs "alpine" = sehr klein, "full" = groß)
 FROM python:3.10-slim
 
-# SCHRITT 2: SYSTEM-DEPENDENCIES INSTALLIEREN
-# RUN = Führe Kommando im Container aus
-# apt-get = Debian/Ubuntu Paket-Manager
-# && = Verkette Kommandos (alles in einem Layer)
-# System-Dependencies installieren:
-# - tesseract-ocr: OCR Engine für PDF-Scans
-# - libtesseract-dev: Development Headers für tesseract
-# - poppler-utils: PDF zu Bild Konvertierung
-# - git: Version Control (für manche Python Pakete)
-# - curl: HTTP Client (für Health Checks)
-# - wget: Download Tool (Backup)
-# - build-essential: Compiler (für C-Extensions in Python)
-# - libgl1-mesa-glx: OpenGL Libraries (für Bildverarbeitung)
-# - libgomp1: OpenMP (für parallele Verarbeitung)
+# SCHRITT 2: SYSTEM-DEPENDENCIES INSTALLIEREN (OPTIMIERT)
+# Nur die wichtigsten Dependencies für kleinere Image-Größe
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         tesseract-ocr \
-        libtesseract-dev \
         poppler-utils \
-        git \
-        curl \
-        wget \
-        build-essential \
-        libgl1-mesa-glx \
-        libgomp1 && \
-    rm -rf /var/lib/apt/lists/*
+        curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# WARUM DIESE PAKETE:
+# WARUM DIESE PAKETE (MINIMAL):
 # - tesseract-ocr: pytesseract braucht das
 # - poppler-utils: pdf2image braucht das  
-# - build-essential: Manche Python Pakete müssen kompiliert werden
-# - libgl1-mesa-glx: PIL/Pillow braucht das für Bildverarbeitung
+# - curl: Für Health Checks
 
 # SCHRITT 3: ARBEITSVERZEICHNIS SETZEN
 # Alle folgenden Kommandos laufen in /app

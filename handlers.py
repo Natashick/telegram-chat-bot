@@ -3,7 +3,7 @@
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from vector_store import semantic_search, get_combined_context
+from vector_store import semantic_search, get_combined_context, index_pdfs
 from llm_client import ask_ollama
 import json
 from telegram.ext import ChatMemberHandler
@@ -11,6 +11,7 @@ import logging
 from pdf2image import convert_from_path
 from PIL import Image
 import asyncio
+import shutil
 
 USER_STATE_FILE = "user_state.json"
 
@@ -208,6 +209,57 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"[DEBUG] Fehler im handle_message: {e}")
         import traceback
         traceback.print_exc()
+
+async def upload_pdf_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    PDF UPLOAD FUNKTION
+    User können PDFs hochladen und für Fragen verwenden
+    """
+    user_id = update.effective_user.id
+    print(f"[DEBUG] /upload aufgerufen von User {user_id}")
+    await update.message.reply_text("📄 Sende mir eine PDF-Datei und ich werde sie für Fragen verfügbar machen!")
+
+async def handle_pdf_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    VERARBEITET HOCHGELADENE PDF-DATEIEN
+    """
+    user_id = update.effective_user.id
+    
+    if not update.message.document:
+        await update.message.reply_text("❌ Das ist keine PDF-Datei. Bitte sende eine PDF.")
+        return
+    
+    document = update.message.document
+    
+    if not document.file_name.lower().endswith('.pdf'):
+        await update.message.reply_text("❌ Bitte sende nur PDF-Dateien.")
+        return
+    
+    try:
+        # PDF herunterladen
+        file = await context.bot.get_file(document.file_id)
+        pdf_path = f"uploaded_{user_id}_{document.file_name}"
+        
+        # Datei speichern
+        await file.download_to_drive(pdf_path)
+        
+        # PDF indexieren für semantische Suche
+        index_pdfs([pdf_path])
+        
+        # User-Dokument setzen
+        user_selected_doc[user_id] = pdf_path
+        save_user_state(user_selected_doc)
+        
+        await update.message.reply_text(
+            f"✅ PDF '{document.file_name}' erfolgreich hochgeladen und indexiert!\n\n"
+            f"Du kannst jetzt Fragen zu diesem Dokument stellen."
+        )
+        
+        print(f"[DEBUG] PDF {pdf_path} von User {user_id} hochgeladen und indexiert")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Fehler beim Hochladen: {str(e)}")
+        print(f"[DEBUG] PDF Upload Fehler: {e}")
 
 async def screenshot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -447,6 +499,11 @@ async def main_message_router(update: Update, context: ContextTypes.DEFAULT_TYPE
         content_type, content_id = visual_request
         print(f"[DEBUG] Visual content request: {content_type} {content_id}")
         await find_and_send_visual_content(update, content_type, content_id)
+        return
+    
+    # NEUE FUNKTION: Erkenne PDF Uploads
+    if update.message.document:
+        await handle_pdf_upload(update, context)
         return
     
     if user_id in user_screenshot_state:
