@@ -60,9 +60,12 @@ async def lifespan(app: FastAPI):
             app_bot.add_handler(MessageHandler(filters.Document.ALL, main_message_router))  # PDF Uploads
             app_bot.add_handler(ChatMemberHandler(greet_on_new_chat, chat_member_types=["my_chat_member"]))  # Bot zu Chat hinzugefügt
             app_bot.add_handler(CommandHandler("screenshot", screenshot_command))  # /screenshot Kommando (VIEW-ONLY)
-            # Bot starten (Polling/Webhook Modus aktivieren)
+            
+            # POLLING MODUS FÜR RAILWAY - KEIN WEBHOOK
+            print("🚀 Starte Bot im Polling-Modus für Railway...")
             await app_bot.start()
-            print("Telegram-Bot gestartet.")
+            print("✅ Telegram-Bot gestartet im Polling-Modus!")
+            
         except Exception as e:
             print(f"[ERROR] Bot startup failed: {e}")
     else:
@@ -71,16 +74,6 @@ async def lifespan(app: FastAPI):
     # KEINE PDF INDEXIERUNG BEIM START - verursacht Crashes
     print("PDF Indexierung übersprungen - wird bei Bedarf gemacht")
     
-    # WEBHOOK KONFIGURATION
-    if WEBHOOK_URL and app_bot:
-        webhook = WEBHOOK_URL + WEBHOOK_PATH
-        try:
-            await app_bot.bot.setWebhook(webhook)
-            print(f"Webhook gesetzt auf {webhook}")
-        except Exception as e:
-            print(f"Fehler beim Setzen des Webhooks: {e}")
-    else:
-        print("Kein WEBHOOK_URL gesetzt oder Bot nicht verfügbar. Webhook wird nicht aktiviert.")
     yield  # Hier läuft die FastAPI Anwendung
     
     # SHUTDOWN PHASE
@@ -104,25 +97,16 @@ async def health_check():
     """
     return {"status": "healthy", "bot": "running"}
 
-# WEBHOOK ENDPOINT
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(req: Request):
-    """Verarbeitet eingehende Telegram Updates via Webhook"""
-    print("Webhook called!")
-    try:
-        # JSON Daten von Telegram parsen
-        data = await req.json()
-        print("Update received:", data)
-        
-        # Telegram Update Objekt erstellen
-        update = Update.de_json(data, app_bot.bot)
-        print("Update object:", update)
-        
-        # Update an Bot-Handler weiterleiten
-        await app_bot.process_update(update)
-        return Response(status_code=200)  # Telegram bestätigen
-    except Exception as e:
-        print(f"FEHLER bei der Webhook-Verarbeitung: {e}")
-        import traceback
-        traceback.print_exc()
-        return Response(status_code=200)  # Immer 200 zurückgeben, sonst sendet Telegram erneut
+# ROOT ENDPOINT
+@app.get("/")
+async def root():
+    """
+    ROOT ENDPOINT
+    Zweck: Zeigt Bot Status
+    """
+    return {
+        "message": "ENISA/ISO Telegram Bot läuft!",
+        "status": "active",
+        "mode": "polling",
+        "health": "/health"
+    }
