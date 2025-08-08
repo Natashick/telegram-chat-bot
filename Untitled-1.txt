@@ -1,0 +1,71 @@
+
+# Starte Ollama
+ollama serve 
+# Prüfen, ob Ollama läuft
+curl http://localhost:11434
+# oder
+ollama list
+
+
+# Starte ngrok
+C:\ngrok.exe http 8000
+
+# im verzeichnis gehen
+cd "C:\Users\Student\OneDrive - orhunsuzer.com\Desktop\Praktikum\Mein Praktikum\chat_bot"
+
+# Starte den Bot
+uvicorn bot:app --host 0.0.0.0 --port 8000
+
+# umgebungvariablen setzen
+$env:TELEGRAM_TOKEN="7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w"
+# immer neu aufpassen ->
+$env:WEBHOOK_URL="https://4295d4f6ea21.ngrok-free.app"
+$env:OLLAMA_URL="http://localhost:11434"
+$env:OLLAMA_MODEL="llama3.2:3b"
+
+# bot lockal starten 
+python -m uvicorn bot:app --host 0.0.0.0 --port 8000 --reload
+
+netstat -an | findstr 8000
+
+
+telegram_token: 7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w
+
+https://api.telegram.org/bot7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w/getWebhookInfo
+
+
+# container starten
+
+docker run -p 8000:8000 -e TELEGRAM_TOKEN="7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w" -e WEBHOOK_URL="https://4295d4f6ea21.ngrok-free.app" -e OLLAMA_URL="http://host.docker.internal:11434" -e OLLAMA_MODEL="llama3.2:3b" mein-bot
+
+
+# Prüfen od das ngrok-Webinterface:
+Öffne http://127.0.0.1:4040 im Browser.
+
+
+# new docker container 
+docker build -t mein-bot .
+
+# starten docker container 
+docker run -d --name mein-bot-container -p 8000:8000 mein-bot
+
+
+# Laufende Container anzeigen:
+docker ps -a
+
+# Docker Container stoppen
+docker stop $(docker ps -q)
+
+# Alle Container entfernen (optional)
+docker rm $(docker ps -aq)
+
+
+# ob Bot import funktioniert 
+python -c "import bot; print('Bot import OK')"
+
+
+
+# Status Check: 
+curl http://localhost:8000/health
+curl http://localhost:8000/
+
