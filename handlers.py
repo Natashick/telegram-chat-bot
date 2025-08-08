@@ -145,32 +145,19 @@ async def greet_on_new_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass  # Begrüßungsnachricht entfernt
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("🚀 Start handler called!")
-    print("📱 update:", update)
-    print("💬 update.message:", update.message)
-    
+    print("Start handler called!")
     pdf_files = get_pdf_files()
-    print("📄 PDF files found:", pdf_files)
-    
+    print("PDF files found:", pdf_files)
     _, file_to_callback, file_display_name = get_callback_maps(pdf_files)
-    print("🔗 Callback maps:", file_to_callback)
-    print("📝 Display names:", file_display_name)
-    
     user_name = update.effective_user.first_name if update.effective_user else "User"
-    greeting = f"🤖 Hey, {user_name}! Please select a document to ask questions about."
-    
-    # Begrüßung und Buttons
+    greeting = f"Hey, {user_name}! Please select a document to ask questions about."
+    # Begrüßung und Hinweis auf /start
     keyboard = [
         [InlineKeyboardButton(file_display_name[fname], callback_data=file_to_callback[fname])]
         for fname in pdf_files
     ]
-    print("⌨️ Keyboard:", keyboard)
-    
     reply_markup = InlineKeyboardMarkup(keyboard)
-    print("✅ Sending message with buttons...")
-    
     await update.message.reply_text(greeting, reply_markup=reply_markup)
-    print("✅ Message sent successfully!")
 
 async def select_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pdf_files = get_pdf_files()

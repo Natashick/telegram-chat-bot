@@ -19,10 +19,6 @@ if not TELEGRAM_TOKEN or TELEGRAM_TOKEN == "dummy_token_for_health_check":
     print("WARNING: Bot wird ohne Telegram Token gestartet (nur Health Check verfügbar)")
     TELEGRAM_TOKEN = "7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w"
 
-# Railway URL für Webhook
-RAILWAY_URL = "https://web-production-952e3.up.railway.app"
-WEBHOOK_URL = f"{RAILWAY_URL}/webhook"
-
 # Ollama Server URL (Standard: localhost:11434)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 # LLM Model das verwendet werden soll (Standard: llama3.2:3b)
@@ -30,8 +26,6 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
 # KONFIGURATION ANZEIGEN
 print(f"Telegram Bot startet...")
-print(f"Railway URL: {RAILWAY_URL}")
-print(f"Webhook URL: {WEBHOOK_URL}")
 print(f"Ollama URL: {OLLAMA_URL}")
 print(f"LLM Model: {OLLAMA_MODEL}")
 
@@ -61,11 +55,10 @@ async def lifespan(app: FastAPI):
             app_bot.add_handler(ChatMemberHandler(greet_on_new_chat, chat_member_types=["my_chat_member"]))  # Bot zu Chat hinzugefügt
             app_bot.add_handler(CommandHandler("screenshot", screenshot_command))  # /screenshot Kommando (VIEW-ONLY)
             
-            # WEBHOOK MODUS FÜR RAILWAY
-            print("🚀 Starte Bot im Webhook-Modus für Railway...")
-            await app_bot.bot.set_webhook(url=WEBHOOK_URL)
-            print(f"✅ Webhook gesetzt auf: {WEBHOOK_URL}")
-            print("✅ Telegram-Bot gestartet im Webhook-Modus!")
+            # POLLING MODUS - EINFACH UND FUNKTIONIERT
+            print("🚀 Starte Bot im Polling-Modus...")
+            await app_bot.start()
+            print("✅ Telegram-Bot gestartet im Polling-Modus!")
             
         except Exception as e:
             print(f"[ERROR] Bot startup failed: {e}")
@@ -80,7 +73,6 @@ async def lifespan(app: FastAPI):
     # SHUTDOWN PHASE
     if app_bot:
         try:
-            await app_bot.bot.delete_webhook()
             await app_bot.stop()
             await app_bot.shutdown()
             print("Telegram-Bot gestoppt.")
@@ -109,29 +101,6 @@ async def root():
     return {
         "message": "ENISA/ISO Telegram Bot läuft!",
         "status": "active",
-        "mode": "webhook",
-        "webhook_url": WEBHOOK_URL,
+        "mode": "polling",
         "health": "/health"
     }
-
-# WEBHOOK ENDPOINT
-@app.post("/webhook")
-async def telegram_webhook(req: Request):
-    """Verarbeitet eingehende Telegram Updates via Webhook"""
-    print("📨 Webhook called!")
-    try:
-        # JSON Daten von Telegram parsen
-        data = await req.json()
-        print("📥 Update received")
-        
-        # Telegram Update Objekt erstellen
-        update = Update.de_json(data, app_bot.bot)
-        
-        # Update an Bot-Handler weiterleiten
-        await app_bot.process_update(update)
-        return Response(status_code=200)  # Telegram bestätigen
-    except Exception as e:
-        print(f"❌ FEHLER bei der Webhook-Verarbeitung: {e}")
-        import traceback
-        traceback.print_exc()
-        return Response(status_code=200)  # Immer 200 zurückgeben
