@@ -1,14 +1,1 @@
-TELEGRAM_TOKEN = 7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w
-OLLAMA_URL = http://localhost:11434
-OLLAMA_MODEL = llama3.2:3b
 
-
-
-
-$env:TELEGRAM_TOKEN="7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w"
-$env:WEBHOOK_URL="https://40a4d0438090.ngrok-free.app"
-$env:OLLAMA_URL="http://localhost:11434"
-$env:OLLAMA_MODEL="llama3.2:3b"
-
-
-docker run -d --name mein-bot-container -p 8000:8000 -e TELEGRAM_TOKEN="7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w" -e WEBHOOK_URL="https://40a4d0438090.ngrok-free.app" -e OLLAMA_URL="http://host.docker.internal:11434" -e OLLAMA_MODEL="llama3.2:3b" mein-bot
