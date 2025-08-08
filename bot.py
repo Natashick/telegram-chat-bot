@@ -8,18 +8,14 @@ from fastapi import FastAPI, Request, Response
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ChatMemberHandler
 from handlers import start, select_document, button, handle_message, greet_on_new_chat, screenshot_command, upload_pdf_command, main_message_router
-from vector_store import index_pdfs
 from contextlib import asynccontextmanager
 import asyncio
 
 # UMGEBUNGSVARIABLEN LADEN UND VALIDIEREN
-# Zweck: Überprüft ob alle notwendigen Konfigurationsvariablen gesetzt sind
-# Warum wichtig: Bot funktioniert nicht ohne Token und Ollama-Konfiguration
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     print("FEHLER: TELEGRAM_TOKEN ist nicht gesetzt!")
     print("Lösung: Setze TELEGRAM_TOKEN in Railway Variables")
-    # Für Railway: Nicht crashen, sondern Warnung ausgeben
     print("WARNING: Bot wird ohne Telegram Token gestartet (nur Health Check verfügbar)")
     TELEGRAM_TOKEN = "dummy_token_for_health_check"
 
@@ -31,7 +27,6 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
 # KONFIGURATION ANZEIGEN
-# Zweck: Debug-Informationen für einfacheres Troubleshooting
 print(f"Telegram Bot startet...")
 print(f"Webhook URL: {WEBHOOK_URL or 'NICHT GESETZT (nur für lokale Tests)'}")
 print(f"Ollama URL: {OLLAMA_URL}")
@@ -41,7 +36,6 @@ print(f"LLM Model: {OLLAMA_MODEL}")
 WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
 
 # TELEGRAM BOT ERSTELLEN
-# Zweck: Initialisiert den Bot mit dem Token aus den Umgebungsvariablen
 try:
     app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     print("[INFO] Telegram Bot Application erstellt")
@@ -49,10 +43,7 @@ except Exception as e:
     print(f"[ERROR] Telegram Bot Application failed: {e}")
     app_bot = None
 
-
 # FASTAPI LIFESPAN MANAGER
-# Zweck: Verwaltet Startup und Shutdown des Bots während FastAPI läuft
-# Warum nötig: Bot muss vor ersten Requests initialisiert werden
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # BOT STARTUP PHASE
@@ -61,7 +52,6 @@ async def lifespan(app: FastAPI):
             # Bot initialisieren (Verbindung zu Telegram herstellen)
             await app_bot.initialize()
             # HANDLER REGISTRIEREN
-            # Zweck: Definiert welche Funktionen auf welche Telegram-Events reagieren
             app_bot.add_handler(CommandHandler("start", start))  # /start Kommando
             app_bot.add_handler(CommandHandler("select", select_document))  # /select Kommando
             app_bot.add_handler(CommandHandler("upload", upload_pdf_command))  # /upload Kommando
@@ -78,25 +68,10 @@ async def lifespan(app: FastAPI):
     else:
         print("[WARNING] Bot Application nicht verfügbar - nur Health Check verfügbar")
     
-    # PDF INDEXIERUNG
-    # Zweck: Alle PDF-Dateien im Verzeichnis für semantische Suche vorbereiten
-    # Warum wichtig: Ohne Indexierung kann der Bot keine Fragen zu PDFs beantworten
-    try:
-        pdfs = [f for f in os.listdir() if f.lower().endswith(".pdf")]
-        if pdfs:
-            print(f"Found {len(pdfs)} PDFs, starting indexing...")
-            # Nur die ersten 3 PDFs indexieren um Memory zu sparen
-            pdfs_to_index = pdfs[:3]
-            index_pdfs(pdfs_to_index)  # Erstellt Embeddings und speichert in ChromaDB
-            print(f"{len(pdfs_to_index)} PDFs indexiert.")
-        else:
-            print("Keine PDFs gefunden zum Indexieren.")
-    except Exception as e:
-        print(f"[WARNING] PDF indexing failed: {e}")
-        print("Bot will start without PDF indexing")
+    # KEINE PDF INDEXIERUNG BEIM START - verursacht Crashes
+    print("PDF Indexierung übersprungen - wird bei Bedarf gemacht")
+    
     # WEBHOOK KONFIGURATION
-    # Zweck: Teilt Telegram mit, wo Updates hingesendet werden sollen
-    # Webhook vs Polling: Webhook = Push, Polling = Pull
     if WEBHOOK_URL and app_bot:
         webhook = WEBHOOK_URL + WEBHOOK_PATH
         try:
@@ -109,7 +84,6 @@ async def lifespan(app: FastAPI):
     yield  # Hier läuft die FastAPI Anwendung
     
     # SHUTDOWN PHASE
-    # Zweck: Sauberes Herunterfahren ohne Datenverlust
     if app_bot:
         try:
             await app_bot.stop()
@@ -119,7 +93,6 @@ async def lifespan(app: FastAPI):
             print(f"[ERROR] Bot shutdown failed: {e}")
 
 # FASTAPI ANWENDUNG ERSTELLEN
-# Zweck: Haupt-Webserver der die Webhook-Endpoints bereitstellt
 app = FastAPI(lifespan=lifespan)
 
 # HEALTH CHECK ENDPOINT FÜR RAILWAY
@@ -132,14 +105,9 @@ async def health_check():
     return {"status": "healthy", "bot": "running"}
 
 # WEBHOOK ENDPOINT
-# Zweck: Empfängt Updates von Telegram und leitet sie an den Bot weiter
-# HTTP POST wird von Telegram bei jeder Nachricht/Aktion aufgerufen
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(req: Request):
-    """Verarbeitet eingehende Telegram Updates via Webhook
-    
-    Flow: Telegram -> ngrok -> FastAPI -> python-telegram-bot -> handlers
-    """
+    """Verarbeitet eingehende Telegram Updates via Webhook"""
     print("Webhook called!")
     try:
         # JSON Daten von Telegram parsen
