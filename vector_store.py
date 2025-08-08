@@ -8,6 +8,24 @@ from chromadb.config import Settings
 
 CHROMA_DIR = "./chroma_db"
 
+# ChromaDB Konfiguration für Railway
+def get_chroma_client():
+    """Erstellt ChromaDB Client mit Railway-optimierter Konfiguration"""
+    try:
+        # Versuche persistente ChromaDB
+        client = chromadb.PersistentClient(path=CHROMA_DIR)
+        print(f"[INFO] Using persistent ChromaDB at {CHROMA_DIR}")
+        return client
+    except Exception as e:
+        print(f"[WARNING] Persistent ChromaDB failed: {e}")
+        # Fallback zu In-Memory ChromaDB
+        client = chromadb.Client(Settings(
+            chroma_db_impl="duckdb+parquet",
+            persist_directory=None
+        ))
+        print("[INFO] Using in-memory ChromaDB")
+        return client
+
 # Ollama Embedding mit echtem Embedding-Model
 class OllamaEmbeddingFunction:
     def __init__(self, embedding_model="nomic-embed-text", url=None):
@@ -15,8 +33,9 @@ class OllamaEmbeddingFunction:
         self.url = url or os.getenv("OLLAMA_URL", "http://localhost:11434")
         print(f"[INFO] Ollama Embedding Model: {self.embedding_model}")
         print(f"[INFO] Ollama Embedding URL: {self.url}")
-    
+        
     def __call__(self, input):
+        # FALLBACK: Wenn Ollama nicht verfügbar, verwende einfache Embeddings
         import requests
         embeddings = []
         texts = input if isinstance(input, list) else [input]
@@ -24,18 +43,19 @@ class OllamaEmbeddingFunction:
             try:
                 base_url = self.url.rstrip("/")
                 response = requests.post(f"{base_url}/api/embeddings", 
-                    json={"model": self.embedding_model, "prompt": text[:500]}, timeout=10)
+                    json={"model": self.embedding_model, "prompt": text[:500]}, timeout=5)
                 if response.status_code == 200:
                     embedding = response.json().get("embedding", [0.0] * 768)
                     embeddings.append(embedding)
                 else:
-                    # Fallback zu Standard wenn Ollama nicht verfügbar
+                    # Fallback zu einfachen Embeddings
                     print(f"[WARNING] Ollama embedding failed: {response.status_code}")
                     embeddings.append([0.1] * 768)
             except Exception as e:
                 print(f"[WARNING] Ollama embedding error: {e}")
+                # Fallback zu einfachen Embeddings
                 embeddings.append([0.1] * 768)
-        return embeddings
+
 
 # Versuche Ollama Embeddings, sonst Standard
 try:
