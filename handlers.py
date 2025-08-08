@@ -213,10 +213,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def upload_pdf_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     PDF UPLOAD FUNKTION
-    User können PDFs hochladen und für Fragen verwenden
+    Nur der Bot-Besitzer kann PDFs hochladen
     """
     user_id = update.effective_user.id
     print(f"[DEBUG] /upload aufgerufen von User {user_id}")
+    
+    # PRIVAT PDF UPLOAD: Nur du kannst PDFs hochladen
+    ALLOWED_USER_ID = 123456789  # Ersetze mit deiner Telegram User ID
+    
+    if user_id != ALLOWED_USER_ID:
+        await update.message.reply_text("❌ **PDF Upload verweigert!**\n\nNur der Bot-Besitzer kann PDFs hochladen. Du kannst aber Fragen zu den vorhandenen Dokumenten stellen!")
+        return
+    
     await update.message.reply_text("📄 Sende mir eine PDF-Datei und ich werde sie für Fragen verfügbar machen!")
 
 async def handle_pdf_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -224,6 +232,13 @@ async def handle_pdf_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     VERARBEITET HOCHGELADENE PDF-DATEIEN
     """
     user_id = update.effective_user.id
+    
+    # PRIVAT PDF UPLOAD: Nur du kannst PDFs hochladen
+    ALLOWED_USER_ID = 123456789  # Ersetze mit deiner Telegram User ID
+    
+    if user_id != ALLOWED_USER_ID:
+        await update.message.reply_text("❌ **PDF Upload verweigert!**\n\nNur der Bot-Besitzer kann PDFs hochladen. Du kannst aber Fragen zu den vorhandenen Dokumenten stellen!")
+        return
     
     if not update.message.document:
         await update.message.reply_text("❌ Das ist keine PDF-Datei. Bitte sende eine PDF.")
