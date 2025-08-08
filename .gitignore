@@ -52,6 +52,13 @@ chroma_db/
 .env.local
 .env.production
 
+# SECURITY: Sensitive data
+*.md
+deploy.ps1
+Untitled-1.txt
+*deployment*
+*KOMMANDOS*
+
 # PDF files (optional - remove if you want to include PDFs in repo)
 *.pdf
 

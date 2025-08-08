@@ -19,8 +19,8 @@ Ein intelligenter Telegram Bot, der Fragen zu PDF-Dokumenten beantwortet und vis
 3. **Klicke "New Project"** → "Deploy from GitHub repo"
 4. **Wähle dein geforktes Repository**
 5. **Setze Umgebungsvariablen**:
-   - `TELEGRAM_TOKEN` - Dein Telegram Bot Token
-   - `OLLAMA_URL` - URL zu deinem Ollama Server (oder entferne für lokale Tests)
+   - `TELEGRAM_TOKEN` - Dein Telegram Bot Token (von @BotFather)
+   - `OLLAMA_URL` - URL zu deinem Ollama Server (optional)
    - `OLLAMA_MODEL` - Modell-Name (Standard: llama3.2:3b)
 
 ### Lokale Entwicklung
