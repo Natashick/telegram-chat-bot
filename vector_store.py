@@ -71,15 +71,26 @@ except Exception as e:
         print(f"[ERROR] All embeddings failed: {e2}")
         embedding_func = None
 
-chroma_client = chromadb.PersistentClient(
-    path=CHROMA_DIR,
-    settings=Settings(anonymized_telemetry=False)
-)
-
-collection = chroma_client.get_or_create_collection(
-    name="pdf_paragraphs",
-    embedding_function=embedding_func
-)
+# ChromaDB Client mit Railway-Fallback
+try:
+    chroma_client = get_chroma_client()
+    collection = chroma_client.get_or_create_collection(
+        name="pdf_paragraphs",
+        embedding_function=embedding_func
+    )
+    print("[INFO] ChromaDB initialized successfully")
+except Exception as e:
+    print(f"[ERROR] ChromaDB initialization failed: {e}")
+    # Fallback zu In-Memory
+    chroma_client = chromadb.Client(Settings(
+        chroma_db_impl="duckdb+parquet",
+        persist_directory=None
+    ))
+    collection = chroma_client.get_or_create_collection(
+        name="pdf_paragraphs",
+        embedding_function=embedding_func
+    )
+    print("[INFO] Using in-memory ChromaDB fallback")
 
 def index_pdfs(pdf_files):
     if collection.count() > 0:

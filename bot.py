@@ -18,8 +18,10 @@ import asyncio
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     print("FEHLER: TELEGRAM_TOKEN ist nicht gesetzt!")
-    print("Lösung: $env:TELEGRAM_TOKEN=\"DEIN-TOKEN-HIER\"")
-    raise ValueError("TELEGRAM_TOKEN Umgebungsvariable ist nicht gesetzt.")
+    print("Lösung: Setze TELEGRAM_TOKEN in Railway Variables")
+    # Für Railway: Nicht crashen, sondern Warnung ausgeben
+    print("WARNING: Bot wird ohne Telegram Token gestartet (nur Health Check verfügbar)")
+    TELEGRAM_TOKEN = "dummy_token_for_health_check"
 
 # Webhook URL für Telegram (optional für lokale Tests)
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -40,7 +42,12 @@ WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
 
 # TELEGRAM BOT ERSTELLEN
 # Zweck: Initialisiert den Bot mit dem Token aus den Umgebungsvariablen
-app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+try:
+    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    print("[INFO] Telegram Bot Application erstellt")
+except Exception as e:
+    print(f"[ERROR] Telegram Bot Application failed: {e}")
+    app_bot = None
 
 
 # FASTAPI LIFESPAN MANAGER
@@ -49,35 +56,44 @@ app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # BOT STARTUP PHASE
-    # Bot initialisieren (Verbindung zu Telegram herstellen)
-    await app_bot.initialize()
-    # HANDLER REGISTRIEREN
-    # Zweck: Definiert welche Funktionen auf welche Telegram-Events reagieren
-    app_bot.add_handler(CommandHandler("start", start))  # /start Kommando
-    app_bot.add_handler(CommandHandler("select", select_document))  # /select Kommando
-    app_bot.add_handler(CommandHandler("upload", upload_pdf_command))  # /upload Kommando
-    app_bot.add_handler(CallbackQueryHandler(button))  # Inline-Button Klicks
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_router))  # Text-Nachrichten
-    app_bot.add_handler(MessageHandler(filters.Document.ALL, main_message_router))  # PDF Uploads
-    app_bot.add_handler(ChatMemberHandler(greet_on_new_chat, chat_member_types=["my_chat_member"]))  # Bot zu Chat hinzugefügt
-    app_bot.add_handler(CommandHandler("screenshot", screenshot_command))  # /screenshot Kommando (VIEW-ONLY)
-    # Bot starten (Polling/Webhook Modus aktivieren)
-    await app_bot.start()
-    print("Telegram-Bot gestartet.")
+    if app_bot:
+        try:
+            # Bot initialisieren (Verbindung zu Telegram herstellen)
+            await app_bot.initialize()
+            # HANDLER REGISTRIEREN
+            # Zweck: Definiert welche Funktionen auf welche Telegram-Events reagieren
+            app_bot.add_handler(CommandHandler("start", start))  # /start Kommando
+            app_bot.add_handler(CommandHandler("select", select_document))  # /select Kommando
+            app_bot.add_handler(CommandHandler("upload", upload_pdf_command))  # /upload Kommando
+            app_bot.add_handler(CallbackQueryHandler(button))  # Inline-Button Klicks
+            app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_router))  # Text-Nachrichten
+            app_bot.add_handler(MessageHandler(filters.Document.ALL, main_message_router))  # PDF Uploads
+            app_bot.add_handler(ChatMemberHandler(greet_on_new_chat, chat_member_types=["my_chat_member"]))  # Bot zu Chat hinzugefügt
+            app_bot.add_handler(CommandHandler("screenshot", screenshot_command))  # /screenshot Kommando (VIEW-ONLY)
+            # Bot starten (Polling/Webhook Modus aktivieren)
+            await app_bot.start()
+            print("Telegram-Bot gestartet.")
+        except Exception as e:
+            print(f"[ERROR] Bot startup failed: {e}")
+    else:
+        print("[WARNING] Bot Application nicht verfügbar - nur Health Check verfügbar")
     
     # PDF INDEXIERUNG
     # Zweck: Alle PDF-Dateien im Verzeichnis für semantische Suche vorbereiten
     # Warum wichtig: Ohne Indexierung kann der Bot keine Fragen zu PDFs beantworten
-    pdfs = [f for f in os.listdir() if f.lower().endswith(".pdf")]
-    if pdfs:
-        index_pdfs(pdfs)  # Erstellt Embeddings und speichert in ChromaDB
-        print(f"{len(pdfs)} PDFs indexiert.")
-    else:
-        print("Keine PDFs gefunden zum Indexieren.")
+    try:
+        pdfs = [f for f in os.listdir() if f.lower().endswith(".pdf")]
+        if pdfs:
+            index_pdfs(pdfs)  # Erstellt Embeddings und speichert in ChromaDB
+            print(f"{len(pdfs)} PDFs indexiert.")
+        else:
+            print("Keine PDFs gefunden zum Indexieren.")
+    except Exception as e:
+        print(f"[WARNING] PDF indexing failed: {e}")
     # WEBHOOK KONFIGURATION
     # Zweck: Teilt Telegram mit, wo Updates hingesendet werden sollen
     # Webhook vs Polling: Webhook = Push, Polling = Pull
-    if WEBHOOK_URL:
+    if WEBHOOK_URL and app_bot:
         webhook = WEBHOOK_URL + WEBHOOK_PATH
         try:
             await app_bot.bot.setWebhook(webhook)
@@ -85,14 +101,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"Fehler beim Setzen des Webhooks: {e}")
     else:
-        print("Kein WEBHOOK_URL gesetzt. Webhook wird nicht aktiviert.")
+        print("Kein WEBHOOK_URL gesetzt oder Bot nicht verfügbar. Webhook wird nicht aktiviert.")
     yield  # Hier läuft die FastAPI Anwendung
     
     # SHUTDOWN PHASE
     # Zweck: Sauberes Herunterfahren ohne Datenverlust
-    await app_bot.stop()
-    await app_bot.shutdown()
-    print("Telegram-Bot gestoppt.")
+    if app_bot:
+        try:
+            await app_bot.stop()
+            await app_bot.shutdown()
+            print("Telegram-Bot gestoppt.")
+        except Exception as e:
+            print(f"[ERROR] Bot shutdown failed: {e}")
 
 # FASTAPI ANWENDUNG ERSTELLEN
 # Zweck: Haupt-Webserver der die Webhook-Endpoints bereitstellt

@@ -5,7 +5,17 @@
 # PORT Variable setzen (Railway gibt diese automatisch)
 export PORT=${PORT:-8000}
 
-echo "Starting bot on port: $PORT"
+echo "=== BOT STARTUP ==="
+echo "Port: $PORT"
+echo "Working directory: $(pwd)"
+echo "Files in directory:"
+ls -la
 
-# Bot starten
-exec uvicorn bot:app --host 0.0.0.0 --port $PORT
+# Python Environment prüfen
+echo "Python version: $(python --version)"
+echo "Pip packages:"
+pip list
+
+# Bot starten mit Debug-Info
+echo "Starting bot..."
+exec uvicorn bot:app --host 0.0.0.0 --port $PORT --log-level debug
