@@ -105,7 +105,29 @@ def is_follow_up(update, user_question):
     return any(kw in uq for kw in FOLLOW_UP_KEYWORDS)
 
 def get_pdf_files():
-    return [f for f in os.listdir() if f.lower().endswith('.pdf')]
+    """
+    GIBT VERFÜGBARE PDF-DATEIEN ZURÜCK
+    Für Railway: Hardcoded Liste da PDFs nicht im Repository sind
+    """
+    # Für Railway: Hardcoded Dokumente
+    railway_docs = [
+        "ENISA Threat Landscape 2024_0.pdf",
+        "ENISA Study Best Practices Cyber Crisis Management.pdf", 
+        "ENISA Single Programming Document 2025-2027 - Condensed version.pdf",
+        "ISO-SAE_21434.pdf",
+        "UN_Regulation155.pdf",
+        "ECE-TRANS-WP29-2021-059e_0.pdf"
+    ]
+    
+    # Prüfe ob lokale PDFs existieren
+    local_pdfs = [f for f in os.listdir() if f.lower().endswith('.pdf')]
+    
+    if local_pdfs:
+        print(f"[INFO] Lokale PDFs gefunden: {local_pdfs}")
+        return local_pdfs
+    else:
+        print(f"[INFO] Keine lokalen PDFs, verwende Railway-Dokumente: {railway_docs}")
+        return railway_docs
 
 def get_file_display_name(fname):
     return os.path.splitext(os.path.basename(fname))[0]
