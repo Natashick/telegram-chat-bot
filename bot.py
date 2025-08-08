@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 import asyncio
 
 # UMGEBUNGSVARIABLEN LADEN UND VALIDIEREN
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-if not TELEGRAM_TOKEN:
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w")
+if not TELEGRAM_TOKEN or TELEGRAM_TOKEN == "dummy_token_for_health_check":
     print("FEHLER: TELEGRAM_TOKEN ist nicht gesetzt!")
     print("Lösung: Setze TELEGRAM_TOKEN in Railway Variables")
     print("WARNING: Bot wird ohne Telegram Token gestartet (nur Health Check verfügbar)")
-    TELEGRAM_TOKEN = "dummy_token_for_health_check"
+    TELEGRAM_TOKEN = "7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w"
 
 # Webhook URL für Telegram (optional für lokale Tests)
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
