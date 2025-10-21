@@ -7,9 +7,10 @@ import os
 from fastapi import FastAPI, Request, Response
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ChatMemberHandler
-from handlers import start, select_document, button, handle_message, greet_on_new_chat, screenshot_command, upload_pdf_command, main_message_router
+from handlers import start, select_document, button, handle_message, greet_on_new_chat, screenshot_command, upload_pdf_command, main_message_router, index_command
 from contextlib import asynccontextmanager
 import asyncio
+from llm_client import test_ollama_connection
 
 # UMGEBUNGSVARIABLEN LADEN UND VALIDIEREN
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w")
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
             app_bot.add_handler(CommandHandler("start", start))  # /start Kommando
             app_bot.add_handler(CommandHandler("select", select_document))  # /select Kommando
             app_bot.add_handler(CommandHandler("upload", upload_pdf_command))  # /upload Kommando
+            app_bot.add_handler(CommandHandler("index", index_command))  # /index Kommando
             app_bot.add_handler(CallbackQueryHandler(button))  # Inline-Button Klicks
             app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_router))  # Text-Nachrichten
             app_bot.add_handler(MessageHandler(filters.Document.ALL, main_message_router))  # PDF Uploads
@@ -67,6 +69,13 @@ async def lifespan(app: FastAPI):
     
     # KEINE PDF INDEXIERUNG BEIM START - verursacht Crashes
     print("PDF Indexierung übersprungen - wird bei Bedarf gemacht")
+    
+    # TEST OLLAMA CONNECTION
+    print("Testing Ollama connection...")
+    ollama_ok = await test_ollama_connection()
+    if not ollama_ok:
+        print("⚠️ WARNING: Ollama connection failed. LLM queries may not work.")
+        print("   Please check OLLAMA_URL environment variable and ensure Ollama is running.")
     
     yield  # Hier läuft die FastAPI Anwendung
     

@@ -3,7 +3,7 @@
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from vector_store import semantic_search, get_combined_context, index_pdfs
+from vector_store import semantic_search, get_combined_context, index_pdfs, has_document, index_document
 from llm_client import ask_ollama
 import json
 from telegram.ext import ChatMemberHandler
@@ -12,6 +12,13 @@ from pdf2image import convert_from_path
 from PIL import Image
 import asyncio
 import shutil
+
+# INDEX CONCURRENCY CONTROL
+INDEX_CONCURRENCY = int(os.getenv("INDEX_CONCURRENCY", "1"))
+_index_semaphore = asyncio.Semaphore(INDEX_CONCURRENCY)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 USER_STATE_FILE = "user_state.json"
 
@@ -196,10 +203,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not selected_doc:
             await select_document(update, context)
             return
+        
+        # CHECK IF DOCUMENT IS INDEXED
+        if not has_document(selected_doc):
+            await update.message.reply_text(
+                f"⚠️ Document '{get_file_display_name(selected_doc)}' is not indexed yet.\n\n"
+                f"Use /index to index this document before searching."
+            )
+            return
+        
         # BEST PRACTICE: Optimierte semantische Suche
-        logging.debug(f"[DEBUG] Starte semantic_search für: {user_question}")
+        logger.debug(f"[DEBUG] Starte semantic_search für: {user_question}")
         results = semantic_search(user_question, selected_doc, n_results=3)
-        logging.debug(f"[DEBUG] Semantic search abgeschlossen")
+        logger.debug(f"[DEBUG] Semantic search abgeschlossen")
         
         # BEST PRACTICE: Verwende die neue kombinierte Kontext-Funktion
         context = get_combined_context(results)
@@ -523,6 +539,79 @@ async def find_and_send_visual_content(update: Update, content_type: str, conten
     except Exception as e:
         print(f"[DEBUG] Fehler bei Visual Content Suche: {e}")
         await update.message.reply_text(f"Error searching for {content_type} {content_id}: {e}")
+
+async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /INDEX COMMAND - Indexes the selected document for searching
+    
+    Uses background task with concurrency control to avoid blocking.
+    Provides progress updates to the user.
+    """
+    user_id = update.effective_user.id
+    selected_doc = user_selected_doc.get(user_id)
+    
+    if not selected_doc:
+        await update.message.reply_text(
+            "❌ No document selected. Use /start to select a document first."
+        )
+        return
+    
+    # Check if already indexed
+    if has_document(selected_doc):
+        await update.message.reply_text(
+            f"✅ Document '{get_file_display_name(selected_doc)}' is already indexed.\n\n"
+            f"You can start asking questions!"
+        )
+        return
+    
+    # Start indexing in background
+    await update.message.reply_text(
+        f"🔄 Starting indexing of '{get_file_display_name(selected_doc)}'...\n\n"
+        f"This may take a few minutes depending on document size."
+    )
+    
+    async def index_with_progress():
+        """Background task for indexing with progress updates"""
+        async with _index_semaphore:
+            try:
+                logger.info(f"Starting background indexing for {selected_doc}")
+                
+                # Progress callback for updates
+                async def progress_update(message):
+                    try:
+                        await update.message.reply_text(message)
+                    except Exception as e:
+                        logger.error(f"Failed to send progress update: {e}")
+                
+                # Run indexing in thread to avoid blocking
+                def sync_index():
+                    return index_document(
+                        selected_doc,
+                        progress_callback=lambda msg: asyncio.create_task(progress_update(msg))
+                    )
+                
+                success = await asyncio.to_thread(sync_index)
+                
+                if success:
+                    await update.message.reply_text(
+                        f"✅ Indexing complete!\n\n"
+                        f"You can now ask questions about '{get_file_display_name(selected_doc)}'."
+                    )
+                else:
+                    await update.message.reply_text(
+                        f"❌ Indexing failed for '{get_file_display_name(selected_doc)}'.\n\n"
+                        f"Please check the logs for more information."
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Indexing error for {selected_doc}: {e}")
+                await update.message.reply_text(
+                    f"❌ Indexing error: {str(e)}"
+                )
+    
+    # Start background task
+    asyncio.create_task(index_with_progress())
+
 
 async def main_message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
