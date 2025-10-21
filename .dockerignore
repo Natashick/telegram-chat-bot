@@ -1,0 +1,114 @@
+# .dockerignore
+# Files and directories to exclude from Docker builds
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Bot specific - don't include in container
+user_state.json
+chroma_db/
+*.log
+.env
+.env.local
+.env.production
+
+# Documentation
+*.md
+README.md
+BIBLIOTHEKEN_UND_TOOLS_GUIDE.md
+ollama-hosting-options.md
+
+# Sensitive data
+*.pdf
+deploy.ps1
+Untitled-1.txt
+*deployment*
+*KOMMANDOS*
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Railway
+.railway/
+
+# Testing
+test_*.py
+*_test.py
+pytest.ini
+.pytest_cache/
+
+# Models and large data
+models/
+data/
+*.model
+*.bin
+*.h5
+*.pkl
+
+# Docker
+docker-compose.yml
+.dockerignore
+Dockerfile.dev
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Misc
+.cursorignore
+.cursorindexingignore
+__marimo__/
+marimo/_static/
+marimo/_lsp/

@@ -1,0 +1,69 @@
+# docker-compose.yml
+# Docker Compose configuration with resource limits for stability
+
+version: '3.8'
+
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram-pdf-bot
+    
+    # RESOURCE LIMITS - Prevents system crashes on low-RAM systems
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'      # Limit to 2 CPU cores
+          memory: 4G       # Limit to 4GB RAM
+        reservations:
+          cpus: '0.5'      # Reserve at least 0.5 CPU
+          memory: 512M     # Reserve at least 512MB RAM
+    
+    # ENVIRONMENT VARIABLES
+    environment:
+      # Telegram Bot Configuration
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      
+      # Ollama/LLM Configuration
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT:-60}
+      
+      # Embedding Configuration (Memory-Efficient)
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      
+      # OCR Configuration
+      - OCR_CONCURRENCY=${OCR_CONCURRENCY:-3}
+      - MIN_TEXT_LENGTH=${MIN_TEXT_LENGTH:-80}
+      
+      # Indexing Configuration
+      - INDEX_CONCURRENCY=${INDEX_CONCURRENCY:-1}
+    
+    # PORTS
+    ports:
+      - "8000:8000"
+    
+    # VOLUMES - Persist data
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./user_state.json:/app/user_state.json
+    
+    # RESTART POLICY
+    restart: unless-stopped
+    
+    # HEALTH CHECK
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# NETWORKS (optional - for multi-service setups)
+networks:
+  default:
+    name: telegram-bot-network
+
+# VOLUMES (optional - for named volumes)
+volumes:
+  chroma_db:
+    driver: local
