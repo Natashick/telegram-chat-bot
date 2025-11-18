@@ -1,7 +1,0 @@
-# Simple Bot Requirements - Minimal Dependencies
-
-# Telegram Bot
-python-telegram-bot==20.6
-
-# HTTP Requests
-requests==2.31.0
