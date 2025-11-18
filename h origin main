@@ -1,5 +1,0 @@
-[33mfcb7bd6[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Force Railway redeploy with fixed Docker image
-[33md1e2a5d[m EMERGENCY FIX: Remove PDF indexing at startup to prevent crashes
-[33mfeef672[m Fix bot crash - limit PDF indexing to 3 files to save memory
-[33m0395c6b[m Force Railway redeploy - bot was removed
-[33m50a1f16[m Set real User ID 589793296 for private PDF upload
