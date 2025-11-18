@@ -1,106 +1,123 @@
-# bot.py
-# HAUPT-BOT-DATEI - Zentrale FastAPI-Anwendung für Telegram Bot
-# Zweck: Verbindet Telegram Bot mit FastAPI Webhook-Server und startet alle Services
-# Verwendet: FastAPI für Webhooks, python-telegram-bot für Bot-Funktionalität
-
 import os
+import logging
 from fastapi import FastAPI, Request, Response
-from telegram import Bot, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ChatMemberHandler
-from handlers import start, select_document, button, handle_message, greet_on_new_chat, screenshot_command, upload_pdf_command, main_message_router
-from contextlib import asynccontextmanager
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 import asyncio
+from contextlib import asynccontextmanager
 
-# UMGEBUNGSVARIABLEN LADEN UND VALIDIEREN
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w")
-if not TELEGRAM_TOKEN or TELEGRAM_TOKEN == "dummy_token_for_health_check":
-    print("FEHLER: TELEGRAM_TOKEN ist nicht gesetzt!")
-    print("Lösung: Setze TELEGRAM_TOKEN in Railway Variables")
-    print("WARNING: Bot wird ohne Telegram Token gestartet (nur Health Check verfügbar)")
-    TELEGRAM_TOKEN = "7724790025:AAE-a0iLKSuIDNct2volaJdncylmOp_L17w"
+# Konfiguration aus Umgebungsvariablen (kein hartkodiertes Token!)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("TELEGRAM_TOKEN is not set. Please set it in your environment (e.g. via .env).")
 
-# Ollama Server URL (Standard: localhost:11434)
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-# LLM Model das verwendet werden soll (Standard: llama3.2:3b)
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")
+PORT = int(os.getenv("PORT", 8000))
+HOST = os.getenv("HOST", "0.0.0.0")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# KONFIGURATION ANZEIGEN
-print(f"Telegram Bot startet...")
-print(f"Ollama URL: {OLLAMA_URL}")
-print(f"LLM Model: {OLLAMA_MODEL}")
+# Logging konfigurieren
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=getattr(logging, LOG_LEVEL)
+)
+logger = logging.getLogger(__name__)
 
-# TELEGRAM BOT ERSTELLEN
+# create Application here
+application = Application.builder().token(TELEGRAM_TOKEN).build()
+# limit parallel background update processing to avoid task explosion
+_UPDATE_SEMA = asyncio.Semaphore(int(os.getenv("MAX_UPDATE_CONCURRENCY", "10")))
+
+async def _process_update_bg(update: Update):
+    async with _UPDATE_SEMA:
+        try:
+            await application.process_update(update)
+        except Exception as e:
+            logger.exception(f"Fehler in background update processing: {e}")
+
+# register handlers (handlers.py must exist)
 try:
-    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    print("[INFO] Telegram Bot Application erstellt")
+    from handlers import (
+        start_command,
+        handle_message,
+        button_callback,
+        help_command,
+        status_command
+    )
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 except Exception as e:
-    print(f"[ERROR] Telegram Bot Application failed: {e}")
-    app_bot = None
+    logger.exception(f"Failed to register handlers: {e}")
+    raise
 
-# FASTAPI LIFESPAN MANAGER
+async def setup_webhook(application: Application):
+    if WEBHOOK_URL:
+        try:
+            webhook_url = f"{WEBHOOK_URL}/webhook/{WEBHOOK_SECRET}"
+            await application.bot.set_webhook(url=webhook_url)
+            logger.info(f"Webhook eingerichtet: {webhook_url}")
+        except Exception as e:
+            logger.error(f"Fehler beim Einrichten des Webhooks: {e}")
+    else:
+        logger.info("Kein WEBHOOK_URL gesetzt - Polling wird verwendet")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # BOT STARTUP PHASE
-    if app_bot:
-        try:
-            # Bot initialisieren (Verbindung zu Telegram herstellen)
-            await app_bot.initialize()
-            # HANDLER REGISTRIEREN
-            app_bot.add_handler(CommandHandler("start", start))  # /start Kommando
-            app_bot.add_handler(CommandHandler("select", select_document))  # /select Kommando
-            app_bot.add_handler(CommandHandler("upload", upload_pdf_command))  # /upload Kommando
-            app_bot.add_handler(CallbackQueryHandler(button))  # Inline-Button Klicks
-            app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_router))  # Text-Nachrichten
-            app_bot.add_handler(MessageHandler(filters.Document.ALL, main_message_router))  # PDF Uploads
-            app_bot.add_handler(ChatMemberHandler(greet_on_new_chat, chat_member_types=["my_chat_member"]))  # Bot zu Chat hinzugefügt
-            app_bot.add_handler(CommandHandler("screenshot", screenshot_command))  # /screenshot Kommando (VIEW-ONLY)
-            
-            # POLLING MODUS - EINFACH UND FUNKTIONIERT
-            print("🚀 Starte Bot im Polling-Modus...")
-            await app_bot.start()
-            print("✅ Telegram-Bot gestartet im Polling-Modus!")
-            
-        except Exception as e:
-            print(f"[ERROR] Bot startup failed: {e}")
+    # startup
+    logger.info("Starting application...")
+    await application.initialize()
+    await application.start()
+    if WEBHOOK_URL:
+        await setup_webhook(application)
     else:
-        print("[WARNING] Bot Application nicht verfügbar - nur Health Check verfügbar")
-    
-    # KEINE PDF INDEXIERUNG BEIM START - verursacht Crashes
-    print("PDF Indexierung übersprungen - wird bei Bedarf gemacht")
-    
-    yield  # Hier läuft die FastAPI Anwendung
-    
-    # SHUTDOWN PHASE
-    if app_bot:
         try:
-            await app_bot.stop()
-            await app_bot.shutdown()
-            print("Telegram-Bot gestoppt.")
-        except Exception as e:
-            print(f"[ERROR] Bot shutdown failed: {e}")
+            await application.bot.delete_webhook()
+        except Exception:
+            logger.debug("Webhook löschen fehlgeschlagen (kann ignoriert werden).")
+    try:
+        if os.getenv("PREINDEX_ENABLED", "0") == "1":
+            import handlers
+            asyncio.create_task(handlers.preindex_all_pdfs())
+            logger.info("Preindex task started in background.")
+        else:
+            logger.info("Preindex disabled (set PREINDEX_ENABLED=1 to enable).")
+    except Exception:
+        logger.debug("Preindex task could not be started.")
+    yield
+    # shutdown
+    logger.info("Stopping application...")
+    try:
+        await application.stop()
+        await application.shutdown()
+    except Exception as e:
+        logger.exception(f"Fehler beim Stoppen des Bots: {e}")
 
-# FASTAPI ANWENDUNG ERSTELLEN
-app = FastAPI(lifespan=lifespan)
+# FastAPI App (mit Lifespan-Handler statt on_event)
+app = FastAPI(title="Telegram Bot API", version="1.0.0", lifespan=lifespan)
 
-# HEALTH CHECK ENDPOINT FÜR RAILWAY
+@app.post(f"/webhook/{WEBHOOK_SECRET}")
+async def webhook_handler(request: Request):
+    try:
+        update_data = await request.json()
+        update = Update.de_json(update_data, application.bot)
+        # Non-blocking processing so webhook returns 200 immediately
+        asyncio.create_task(_process_update_bg(update))
+        return Response(content="OK", status_code=200)
+    except Exception as e:
+        logger.exception(f"Fehler im Webhook: {e}")
+        return Response(content="Error", status_code=500)
+
 @app.get("/health")
 async def health_check():
-    """
-    HEALTH CHECK ENDPOINT
-    Zweck: Railway überprüft ob Bot läuft
-    """
-    return {"status": "healthy", "bot": "running"}
-
-# ROOT ENDPOINT
-@app.get("/")
-async def root():
-    """
-    ROOT ENDPOINT
-    Zweck: Zeigt Bot Status
-    """
     return {
-        "message": "ENISA/ISO Telegram Bot läuft!",
-        "status": "active",
-        "mode": "polling",
-        "health": "/health"
+        "status": "healthy",
+        "webhook_configured": bool(WEBHOOK_URL),
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host=HOST, port=PORT)

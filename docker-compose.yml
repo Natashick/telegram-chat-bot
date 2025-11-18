@@ -1,0 +1,44 @@
+services:
+  bot:
+    build: .
+    image: mein-bot:latest
+    env_file:
+      - .env
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-secret123}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      OCR_CONCURRENCY: ${OCR_CONCURRENCY:-1}
+      PDF_DIR: ${PDF_DIR:-/app/pdfs}
+      # Explicit flags to control indexing and load
+      ENABLE_TITLE_INDEX: ${ENABLE_TITLE_INDEX:-0}
+      EMBED_CONCURRENCY: ${EMBED_CONCURRENCY:-1}
+      TITLE_BATCH_SIZE: ${TITLE_BATCH_SIZE:-8}
+      PREINDEX_ENABLED: ${PREINDEX_ENABLED:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CHROMA_DISABLE_TELEMETRY: ${CHROMA_DISABLE_TELEMETRY:-1}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-1}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-1}
+      MKL_NUM_THREADS: ${MKL_NUM_THREADS:-1}
+      NUMEXPR_NUM_THREADS: ${NUMEXPR_NUM_THREADS:-1}
+      # Reduce memory spikes during indexing
+      BATCH_SIZE: ${BATCH_SIZE:-1}
+      CHUNK_SIZE: ${CHUNK_SIZE:-900}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-180}
+    volumes:
+      - ./pdfs:/app/pdfs:ro
+      - ./chroma_db:/app/chroma_db
+    ports:
+      - "8000:8000"
+    # Ensure resource limits also apply in non-swarm compose
+    mem_limit: 3g
+    cpus: "1.0"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 3G
