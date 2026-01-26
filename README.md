@@ -18,9 +18,9 @@
    # Für Webhook (ngrok o.ä.). Leer lassen für Polling.
    WEBHOOK_URL=https://<dein>.ngrok-free.app
    # Optional:
-   WEBHOOK_SECRET=secret123
-   OLLAMA_URL=http://host.docker.internal:11434
-   OLLAMA_MODEL=llama3.2:3b
+   WEBHOOK_SECRET=<dein>secret
+   OLLAMA_URL=http://<dein>host.docker.internal
+   OLLAMA_MODEL=<dein>llama
    OLLAMA_EMBED_MODEL=nomic-embed-text
    OCR_CONCURRENCY=1
    PDF_DIR=/app/pdfs
@@ -77,3 +77,4 @@
 - Bei OCR-Problemen: Poppler- und Tesseract-Pfade prüfen.
 - Bei LLM-Problemen: Läuft Ollama? Modell geladen?
 - Bei Webhook-Problemen: Ist der Server von Telegram erreichbar?
+
