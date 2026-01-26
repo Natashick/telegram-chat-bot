@@ -1,0 +1,47 @@
+# docker compose
+services:
+  bot:
+    build: .
+    image: mein-bot:latest
+    env_file:
+      - .env
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-secret123}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      # OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}  # wird nicht mit Satztransformatoren verwendet
+      PDF_DIR: ${PDF_DIR:-/app/pdfs}
+      CHROMA_DB_DIR: ${CHROMA_DB_DIR:-/app/chroma_db}
+      CHUNK_SIZE: ${CHUNK_SIZE:-800}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-200}
+      BATCH_SIZE: ${BATCH_SIZE:-1}
+      # EMBED_CONCURRENCY: ${EMBED_CONCURRENCY:-1}  # wird nicht mit Satztransformatoren verwendet
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      ENABLE_TITLE_INDEX: ${ENABLE_TITLE_INDEX:-0}
+      PREINDEX_ENABLED: ${PREINDEX_ENABLED:-0}
+      CHROMA_DISABLE_TELEMETRY: ${CHROMA_DISABLE_TELEMETRY:-1}
+      OCR_ENABLED: ${OCR_ENABLED:-0}
+      OCR_NOISE_MAX_RATIO: ${OCR_NOISE_MAX_RATIO:-0.7}
+      INDEX_CONCURRENCY: ${INDEX_CONCURRENCY:-1}
+      MAX_UPDATE_CONCURRENCY: ${MAX_UPDATE_CONCURRENCY:-2}
+      EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE:-16}
+      GUNICORN_WORKERS: "1"
+      # Vollständige Indizierung standardmäßig erzwingen
+      MAX_INDEX_CHUNKS: "0"
+      # Retrieval/quality kontrolle
+      MAX_EXCERPTS: ${MAX_EXCERPTS:-12}
+      MIN_PARA_CHARS: "20"
+      MIN_CHUNK_CHARS: "50"
+      MIN_CHUNK_WORDS: "8"
+      DISABLE_CHUNK_FILTER: "0"
+      MIN_SIM_THRESHOLD: ${MIN_SIM_THRESHOLD:-0.15}
+    volumes:
+      - ./pdfs:/app/pdfs:ro
+      - ./chroma_db:/app/chroma_db
+    ports:
+      - "8000:8000"
+    mem_limit: 12g
+    cpus: "2.0"
+    restart: unless-stopped

@@ -1,128 +1,143 @@
 # bot.py
-# HAUPT-BOT-DATEI - Zentrale FastAPI-Anwendung für Telegram Bot
-# Zweck: Verbindet Telegram Bot mit FastAPI Webhook-Server und startet alle Services
-# Verwendet: FastAPI für Webhooks, python-telegram-bot für Bot-Funktionalität
-
 import os
+import logging
 from fastapi import FastAPI, Request, Response
-from telegram import Bot, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ChatMemberHandler
-from handlers import start, select_document, button, handle_message, greet_on_new_chat, screenshot_command, upload_pdf_command, main_message_router
-from contextlib import asynccontextmanager
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 import asyncio
+from contextlib import asynccontextmanager
+from llm_client import test_ollama_connection
 
-# UMGEBUNGSVARIABLEN LADEN UND VALIDIEREN
+# Konfiguration aus Umgebungsvariablen (kein hartkodiertes Token!)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
-    print("FEHLER: TELEGRAM_TOKEN ist nicht gesetzt!")
-    print("Lösung: Setze TELEGRAM_TOKEN in Railway Variables")
-    print("WARNING: Bot wird ohne Telegram Token gestartet (nur Health Check verfügbar)")
-    TELEGRAM_TOKEN = "dummy_token_for_health_check"
+    raise RuntimeError("TELEGRAM_TOKEN is not set. Please set it in your environment (e.g. via .env).")
 
-# Webhook URL für Telegram (optional für lokale Tests)
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-# Ollama Server URL (Standard: localhost:11434)
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-# LLM Model das verwendet werden soll (Standard: llama3.2:3b)
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "secret123")
+PORT = int(os.getenv("PORT", 8000))
+HOST = os.getenv("HOST", "0.0.0.0")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+if not WEBHOOK_URL:
+    raise RuntimeError("WEBHOOK_URL is required. Polling mode is not supported in this deployment.")
 
-# KONFIGURATION ANZEIGEN
-print(f"Telegram Bot startet...")
-print(f"Webhook URL: {WEBHOOK_URL or 'NICHT GESETZT (nur für lokale Tests)'}")
-print(f"Ollama URL: {OLLAMA_URL}")
-print(f"LLM Model: {OLLAMA_MODEL}")
+# Logging konfigurieren
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=getattr(logging, LOG_LEVEL)
+)
+logger = logging.getLogger(__name__)
 
-# Webhook-Pfad generieren (einzigartig durch Token)
-WEBHOOK_PATH = f"/webhook/{TELEGRAM_TOKEN}"
+# Hier Anwendung erstellen
+application = Application.builder().token(TELEGRAM_TOKEN).build()
+# Um eine Aufgabenexplosion zu vermeiden, muss die parallele Hintergrundverarbeitung von Aktualisierungen begrenzt werden.
+_UPDATE_SEMA = asyncio.Semaphore(int(os.getenv("MAX_UPDATE_CONCURRENCY", "10")))
 
-# TELEGRAM BOT ERSTELLEN
+async def _process_update_bg(update: Update):
+    async with _UPDATE_SEMA:
+        try:
+            await application.process_update(update)
+        except Exception as e:
+            logger.exception(f"Fehler in background update processing: {e}")
+
+# Handler registrieren (bevorzugt schlanke handlers1, falls vorhanden)
 try:
-    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    print("[INFO] Telegram Bot Application erstellt")
+    from handlers1 import (
+        start_command,
+        handle_message,
+        button_callback,
+        help_command,
+        status_command,
+        screenshot_command
+    )
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("screenshot", screenshot_command))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 except Exception as e:
-    print(f"[ERROR] Telegram Bot Application failed: {e}")
-    app_bot = None
+    logger.exception(f"Failed to register handlers: {e}")
+    raise
 
-# FASTAPI LIFESPAN MANAGER
+async def setup_webhook(application: Application):
+    try:
+        webhook_url = f"{WEBHOOK_URL}/webhook/{WEBHOOK_SECRET}"
+        await application.bot.set_webhook(
+            url=webhook_url,
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query"],
+        )
+        logger.info(f"Webhook eingerichtet: {webhook_url}")
+        # Menü-Befehle leeren, чтобы не дублировать с ReplyKeyboard (/start, /screenshot)
+        try:
+            await application.bot.set_my_commands([])
+        except Exception as ce:
+            logger.debug(f"set_my_commands warn: {ce}")
+    except Exception as e:
+        logger.error(f"Durch das Einrichten des Webhooks ist ein Fehler aufgetreten: {e}")
+        raise
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # BOT STARTUP PHASE
-    if app_bot:
-        try:
-            # Bot initialisieren (Verbindung zu Telegram herstellen)
-            await app_bot.initialize()
-            # HANDLER REGISTRIEREN
-            app_bot.add_handler(CommandHandler("start", start))  # /start Kommando
-            app_bot.add_handler(CommandHandler("select", select_document))  # /select Kommando
-            app_bot.add_handler(CommandHandler("upload", upload_pdf_command))  # /upload Kommando
-            app_bot.add_handler(CallbackQueryHandler(button))  # Inline-Button Klicks
-            app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, main_message_router))  # Text-Nachrichten
-            app_bot.add_handler(MessageHandler(filters.Document.ALL, main_message_router))  # PDF Uploads
-            app_bot.add_handler(ChatMemberHandler(greet_on_new_chat, chat_member_types=["my_chat_member"]))  # Bot zu Chat hinzugefügt
-            app_bot.add_handler(CommandHandler("screenshot", screenshot_command))  # /screenshot Kommando (VIEW-ONLY)
-            # Bot starten (Polling/Webhook Modus aktivieren)
-            await app_bot.start()
-            print("Telegram-Bot gestartet.")
-        except Exception as e:
-            print(f"[ERROR] Bot startup failed: {e}")
-    else:
-        print("[WARNING] Bot Application nicht verfügbar - nur Health Check verfügbar")
-    
-    # KEINE PDF INDEXIERUNG BEIM START - verursacht Crashes
-    print("PDF Indexierung übersprungen - wird bei Bedarf gemacht")
-    
-    # WEBHOOK KONFIGURATION
-    if WEBHOOK_URL and app_bot:
-        webhook = WEBHOOK_URL + WEBHOOK_PATH
-        try:
-            await app_bot.bot.setWebhook(webhook)
-            print(f"Webhook gesetzt auf {webhook}")
-        except Exception as e:
-            print(f"Fehler beim Setzen des Webhooks: {e}")
-    else:
-        print("Kein WEBHOOK_URL gesetzt oder Bot nicht verfügbar. Webhook wird nicht aktiviert.")
-    yield  # Hier läuft die FastAPI Anwendung
-    
-    # SHUTDOWN PHASE
-    if app_bot:
-        try:
-            await app_bot.stop()
-            await app_bot.shutdown()
-            print("Telegram-Bot gestoppt.")
-        except Exception as e:
-            print(f"[ERROR] Bot shutdown failed: {e}")
+async def lifespan(_app: FastAPI):
+    # startup
+    logger.info("Starting application...")
+    await application.initialize()
+    await application.start()
+    await setup_webhook(application)
+    # Ollama availability check
+    try:
+        ok = await test_ollama_connection()
+        if not ok:
+            logger.error("Ollama ist nicht erreichbar – bitte prüfen (URL/Port/Modell).")
+        else:
+            logger.info("Ollama-Verbindung OK.")
+    except Exception as e:
+        logger.error(f"Ollama-Check Fehler: {e}")
+    try:
+        # Запуск прединдексации только если явно включено
+        pre_enabled = os.getenv("PREINDEX_ENABLED", "1") != "0"
+        if pre_enabled:
+            # gather pdf list from handlers1 and schedule via indexer
+            from handlers1 import get_pdf_files
+            from indexer import preindex_all_pdfs as _preindex
+            pdfs = get_pdf_files()
+            asyncio.create_task(_preindex(pdfs))
+            logger.info("Preindex task started in background (flag).")
+        else:
+            logger.info("Preindex disabled (set PREINDEX_ENABLED=1 to enable).")
+    except Exception as e:
+        logger.debug(f"Preindex task could not be started: {e}")
+    yield
+    # shutdown
+    logger.info("Stopping application...")
+    try:
+        await application.stop()
+        await application.shutdown()
+    except Exception as e:
+        logger.exception(f"Fehler beim Stoppen des Bots: {e}")
 
-# FASTAPI ANWENDUNG ERSTELLEN
-app = FastAPI(lifespan=lifespan)
+# FastAPI App (mit Lifespan-Handler statt on_event)
+app = FastAPI(title="Telegram Bot API", version="1.0.0", lifespan=lifespan)
 
-# HEALTH CHECK ENDPOINT FÜR RAILWAY
+@app.post(f"/webhook/{WEBHOOK_SECRET}")
+async def webhook_handler(request: Request):
+    try:
+        update_data = await request.json()
+        update = Update.de_json(update_data, application.bot)
+        # Non-blocking processing so webhook returns 200 immediately
+        asyncio.create_task(_process_update_bg(update))
+        return Response(content="OK", status_code=200)
+    except Exception as e:
+        logger.exception(f"Fehler im Webhook: {e}")
+        return Response(content="Error", status_code=500)
+
 @app.get("/health")
 async def health_check():
-    """
-    HEALTH CHECK ENDPOINT
-    Zweck: Railway überprüft ob Bot läuft
-    """
-    return {"status": "healthy", "bot": "running"}
+    return {
+        "status": "healthy",
+        "webhook_configured": bool(WEBHOOK_URL),
+    }
 
-# WEBHOOK ENDPOINT
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(req: Request):
-    """Verarbeitet eingehende Telegram Updates via Webhook"""
-    print("Webhook called!")
-    try:
-        # JSON Daten von Telegram parsen
-        data = await req.json()
-        print("Update received:", data)
-        
-        # Telegram Update Objekt erstellen
-        update = Update.de_json(data, app_bot.bot)
-        print("Update object:", update)
-        
-        # Update an Bot-Handler weiterleiten
-        await app_bot.process_update(update)
-        return Response(status_code=200)  # Telegram bestätigen
-    except Exception as e:
-        print(f"FEHLER bei der Webhook-Verarbeitung: {e}")
-        import traceback
-        traceback.print_exc()
-        return Response(status_code=200)  # Immer 200 zurückgeben, sonst sendet Telegram erneut
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host=HOST, port=PORT)
