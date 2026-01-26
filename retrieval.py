@@ -320,6 +320,14 @@ def build_combined_excerpts(chunks: List[Dict]) -> str:
             if not s:
                 continue
 
+            # skip "figure/clause/annex/overview", but NOT table/tabelle
+            if re.match(r"^(figure|clause|overview|annex)\b", s, re.IGNORECASE):
+                continue
+            # If this is a table row in Markdown or similar, save it.
+            if "|" in s or re.match(r"^(table|tabelle)\b", s, re.IGNORECASE):
+                lines.append(s)
+                continue
+            #
             if (
                 re.search(r"\b(ISO|SAE)\b", s, re.IGNORECASE)
                 or re.search(r"\b[A-Z]{2,10}\b", s)
@@ -328,14 +336,13 @@ def build_combined_excerpts(chunks: List[Dict]) -> str:
                 lines.append(s)
                 continue
 
-            if re.match(r"^(figure|clause|overview|table|annex)\b", s, re.IGNORECASE):
-                continue
             if re.match(r"^\d+(\.\d+)*\s+[A-Z]", s):
                 continue
             if len(s.split()) <= 2:
                 continue
 
             lines.append(s)
+
 
         out = []
         seen = set()

@@ -14,16 +14,16 @@
 1. PDFs in den Ordner `./pdfs` legen (nur Lesen im Container).
 2. `.env` neben `docker-compose.yml` erstellen:
    ```env
-   TELEGRAM_TOKEN=DEIN_TELEGRAM_TOKEN
-   # Für Webhook (ngrok o.ä.). Leer lassen für Polling.
-   WEBHOOK_URL=https://<dein>.ngrok-free.app
-   # Optional:
-   WEBHOOK_SECRET=secret123
-   OLLAMA_URL=http://host.docker.internal:11434
-   OLLAMA_MODEL=llama3.2:3b
-   OLLAMA_EMBED_MODEL=nomic-embed-text
-   OCR_CONCURRENCY=1
-   PDF_DIR=/app/pdfs
+TELEGRAM_TOKEN=DEIN_TELEGRAM_TOKEN
+# Für Webhook (ngrok o.ä.). Leer lassen für Polling.
+WEBHOOK_URL=https://<dein>.ngrok-free.app
+# Optional:
+WEBHOOK_SECRET=<dein>secret
+OLLAMA_URL=http://<dein>host.docker.internal:
+OLLAMA_MODEL=<dein>llama
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OCR_CONCURRENCY=1
+PDF_DIR=/app/pdfs
    ```
 3. Starten
    ```bash

@@ -143,13 +143,11 @@ class VectorStore:
         if self.disable_chunk_filter:
             return bool(s.strip())
         # Erlaube kürzere Definitionen (behalte prägnante Glossar-ähnliche Zeilen bei)
-        if re.search(
-            r"\b[A-ZÄÖÜ]{2,10}\b\s*(?:[-–—:]\s*|\()", s, re.IGNORECASE
-        ):
+        if s.count("|") >= 2:
+            return True
+        if re.search(fr"\b[A-ZÄÖÜ]{2,10}\b\s*(?:[---:]\s|\()", s, re.IGNORECASE):
             return True
         if len(s) < self.min_chunk_chars:
-            return False
-        if len(s.split()) < self.min_chunk_words:
             return False
         alpha = sum(ch.isalpha() for ch in s)
         return (alpha / max(1, len(s))) >= 0.25

@@ -1,14 +1,16 @@
 # pdf_parser.py
-import PyPDF2                 # Text-Extraktion und Seitenzugriff aus PDFs (ohne OCR)
+import PyPDF2                 # Primär: Text-Extraktion und Seitenzugriff aus PDFs (ohne OCR)
+import pdfplumber             # Zusätzlich: robuste Tabellen- und Text-Extraktion für komplexe Layouts
 import pdf2image              # Rendert PDF-Seiten als Bilder (für OCR & Screenshots)
-import pytesseract            # OCR: extrahiert Text aus gerenderten Bildern
+import pytesseract            # OCR: extrahiert Text aus gerenderten Bildern (Pipeline vorbereitet)
 import re
 import logging
 import asyncio
-from typing import List, Optional, Dict
-from PIL import Image         # Bildverarbeitung (Resize, Grayscale) vor OCR & PNG-Ausgabe
+from typing import List, Optional, Dict, Tuple
+from PIL import Image         # Bildverarbeitung (Resize, Grayscale, OCR-Vorbereitung)
 import os
 import io
+import unicodedata            # Text-Normalisierung
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,7 +21,93 @@ _sema = asyncio.Semaphore(_OCR_CONCURRENCY)
 
 # Heuristiken zur Verkürzung der Definitionszeilen (z. B. „TARA – Bedrohungsanalyse und Risikobewertung“)
 DEFN_RE = re.compile(r"\b([A-ZÄÖÜ]{2,10})\b\s*(?:[-–—:]\s*|\()", re.IGNORECASE)
+# ============================================================================
+# TEXT NORMALIZATION & PREPROCESSING
+# ============================================================================
 
+class TextNormalizer:
+    """Robuste Normalisierung für saubere Absätze: Zeilenumbrüche, Silbentrennung, Unicode."""
+    
+    @staticmethod
+    def normalize_text(raw_text: str) -> str:
+        """
+        Normalisiert PDF-Text durch mehrere Passes:
+        1. Unicode-Normalisierung (Sonderzeichen)
+        2. Zeilenumbruch-Behandlung (Silbentrennung, Absätze)
+        3. Whitespace-Bereinigung
+        4. Ligatur-Ersetzung
+        """
+        if not raw_text:
+            return ""
+        
+        text = str(raw_text)
+        
+        # 1) Unicode NFD-Normalisierung (z.B. é → e + Akzent kombiniert)
+        text = unicodedata.normalize("NFKC", text)
+        
+        # 2) Zeilenumbruchbehandlung
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        
+        # 2a) Silbentrennung über Zeilenumbrüche:
+        # "threat-\nanalysis" → "threatanalysis"
+        # "confi-\ndential" → "confidential"
+        text = re.sub(
+            r"([A-Za-zÄÖÜäöüß0-9])-\n+([A-Za-zÄÖÜäöüß0-9])",
+            r"\1\2",
+            text
+        )
+        
+        # 2b) Einfache Zeilenumbrüche in Leerzeichen umwandeln
+        # (aber Absatzumbrüche \n\n → \n beibehalten)
+        text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+        
+        # 2c) Mehrfache Absatzumbrüche auf max. 2 reduzieren
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        
+        # 3) Ligatur-Ersetzung (ﬁ→fi, ﬂ→fl, etc.)
+        text = text.replace("ﬁ", "fi").replace("ﬂ", "fl")
+        text = text.replace("ﬀ", "ff").replace("ﬂ", "fl")
+        text = text.replace("ﬃ", "ffi").replace("ﬄ", "ffl")
+        
+        # 4) Whitespace-Bereinigung
+        # Mehrfache Leerzeichen → einfaches Leerzeichen
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        
+        # Leerzeichen vor Satzzeichen entfernen
+        text = re.sub(r"\s+([.,:;!?])", r"\1", text)
+        
+        # 5) Führende/abschließende Whitespaces trimmen
+        text = text.strip()
+        
+        return text
+    
+    @staticmethod
+    def split_into_paragraphs(text: str) -> List[str]:
+        """
+        Teilt normalisierten Text in saubere Absätze auf.
+        Respektiert Absatzumbrüche (\n\n) und entfernt leere Zeilen.
+        """
+        if not text:
+            return []
+        
+        # Split by double newlines (paragraph breaks)
+        paragraphs = re.split(r"\n\s*\n", text)
+        
+        # Clean each paragraph
+        result = []
+        for para in paragraphs:
+            cleaned = para.strip()
+            if cleaned:
+                # Restore single newlines within paragraph (for structured text)
+                cleaned = re.sub(r"\n+", " ", cleaned)
+                result.append(cleaned)
+        
+        return result
+
+
+# ============================================================================
+# ROBUST PDF EXTRACTION WITH pdfplumber FALLBACK
+# ============================================================================
 class OptimizedPDFParser:
     def __init__(self):
         self.default_dpi = 180
@@ -31,6 +119,7 @@ class OptimizedPDFParser:
         self.fallback_psm = 3
         self.languages = ['eng', 'deu']
         self.max_width = 2000
+        self.normalizer = TextNormalizer()
         logger.info(
             f"[PDFParser] dpi={self.default_dpi}/{self.fallback_dpi}, "
             f"min_len={self.min_text_length}, psm={self.primary_psm}->{self.fallback_psm}, "
@@ -38,93 +127,202 @@ class OptimizedPDFParser:
         )
 
     async def extract_paragraphs_from_pdf(self, pdf_path: str) -> List[str]:
-        """Route by OCR_ENABLED: 0 = simple (PyPDF2 only), 1 = OCR pipeline."""
+        """Route by OCR_ENABLED: 0 = simple (PyPDF2+pdfplumber), 1 = OCR pipeline."""
         if not OCR_ENABLED:
             return await self._extract_text_only(pdf_path)
         return await self._extract_with_ocr(pdf_path)
 
     async def _extract_text_only(self, pdf_path: str) -> List[str]:
-        """Lightweight path: extract text using PyPDF2 only (no OCR)."""
+        """Lightweight path: extract text using PyPDF2 + pdfplumber fallback (no OCR)."""
         try:
-            logger.info(f"Starte PDF-Verarbeitung (simple): {pdf_path}")
+            logger.info(f"Starte PDF-Verarbeitung (Text-only, PyPDF2+pdfplumber): {pdf_path}")
             paragraphs: List[str] = []
-            with open(pdf_path, "rb") as f:  # PDF-Datei öffnen
-                reader = PyPDF2.PdfReader(f)  # PyPDF2: PDF-Struktur laden
-                total_pages = len(reader.pages)  # Seiten zählen
+            
+            with open(pdf_path, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                total_pages = len(reader.pages)
                 logger.info(f"PDF hat {total_pages} Seiten")
+                
                 for i in range(total_pages):
                     try:
-                        page = reader.pages[i]  # Seite abrufen
-                        raw = page.extract_text() or ""  # PyPDF2: reinen Text der Seite extrahieren
-                        # Normalisiere Zeilenumbrüche und Silbentrennung vor der Absatzaufteilung
-                        text = raw.replace("\r", "")
-                        # Worttrennungen über Zeilenumbrüche hinweg korrigieren: "threat-\nanalysis" -> "threatanalysis"
-                        text = re.sub(r"([A-Za-zÄÖÜäöüß0-9])-\n([A-Za-zÄÖÜäöüß0-9])", r"\1\2", text)
-                        # Einzelne Zeilenumbrüche in Leerzeichen umwandeln, Absatzumbrüche beibehalten
-                        text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
-                        # Mehrfache Leerzeichen normalisieren
-                        text = re.sub(r"[ \t]{2,}", " ", text)
+                        page = reader.pages[i]
+                        
+                        # Primär: PyPDF2
+                        raw_text = page.extract_text() or ""
+                        
+                        # Fallback: pdfplumber für komplexere Layouts
+                        if not self._is_text_sufficient(raw_text):
+                            logger.debug(f"PyPDF2 Seite {i+1} unzureichend, versuche pdfplumber...")
+                            raw_text = await self._extract_with_pdfplumber(pdf_path, i)
+                        
+                        if not raw_text:
+                            continue
+                        
+                        # Normalisiere Text
+                        normalized = self.normalizer.normalize_text(raw_text)
+                        
+                        # Teile in Absätze und filtere
+                        for para in self.normalizer.split_into_paragraphs(normalized):
+                            if self._is_usable_para(para):
+                                paragraphs.append(para)
+                    
                     except Exception as e:
-                        logger.debug(f"Text-Extrakt Fehler Seite {i+1}: {e}")
-                        text = ""
-                    # Aufteilen in Absätze anhand von Leerzeilen
-                    for para in re.split(r"\n\s*\n", text):
-                        p = (para or "").strip()
-                        if self._is_usable_para(p):
-                            paragraphs.append(p)
-            logger.info(f"Erfolgreich {len(paragraphs)} Absätze extrahiert (simple)")
+                        logger.debug(f"Fehler Seite {i+1}: {e}")
+                        continue
+            
+            logger.info(f"Erfolgreich {len(paragraphs)} Absätze extrahiert (Text-only)")
             return paragraphs
+        
         except Exception as e:
-            logger.error(f"Fehler bei PDF-Verarbeitung (simple): {e}")
+            logger.error(f"Fehler bei PDF-Verarbeitung (Text-only): {e}")
             return []
 
-    async def _extract_with_ocr(self, pdf_path: str) -> List[str]:
-        """Open PdfReader once and process pages in batches with OCR fallback."""
+    async def _extract_with_pdfplumber(self, pdf_path: str, page_num: int) -> str:
+        """pdfplumber für robuste Extraktion aus komplexen Layouts."""
         try:
-            logger.info(f"Starte PDF-Verarbeitung: {pdf_path}")
-            # Datei sicher öffnen und bis zum Abschluss der Seitenverarbeitung geöffnet halten
-            with open(pdf_path, "rb") as f:  # PDF öffnen
-                reader = PyPDF2.PdfReader(f)  # PyPDF2: Leser für direkten Textzugriff
-                total_pages = len(reader.pages)  # Seitenzahl ermitteln
-                logger.info(f"PDF hat {total_pages} Seiten")
+            text = await asyncio.to_thread(
+                self._pdfplumber_extract,
+                pdf_path,
+                page_num
+            )
+            return text or ""
+        except Exception as e:
+            logger.debug(f"pdfplumber Seite {page_num+1} Fehler: {e}")
+            return ""
+    
+    def _pdfplumber_extract(self, pdf_path: str, page_num: int) -> str:
+        """Synchrone pdfplumber-Extraktion (in Thread aufgerufen)."""
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                if page_num >= len(pdf.pages):
+                    return ""
+                page = pdf.pages[page_num]
+                
+                # 1) Reiner Text
+                text = page.extract_text() or ""
+                
+                # 2) Tabellen aus dieser Seite (falls vorhanden)
+                try:
+                    tables = page.extract_tables()
+                    if tables:
+                        for table in tables:
+                            for row in table:
+                                row_text = " | ".join([str(cell or "") for cell in row])
+                                text += "\n" + row_text
+                except Exception:
+                    pass
+                
+                return text.strip()
+        except Exception as e:
+            logger.debug(f"_pdfplumber_extract Fehler: {e}")
+            return ""
+
+    async def _extract_with_ocr(self, pdf_path: str) -> List[str]:
+        """
+        OCR Pipeline: mit Fallback-Strategie und Normalisierung.
+        1. Versuche PyPDF2 + pdfplumber
+        2. Falls unzureichend: OCR mit light/fallback DPI
+        3. Normalisiere alle Ergebnisse
+        """
+        try:
+            logger.info(f"Starte PDF-Verarbeitung (OCR-Pipeline): {pdf_path}")
+            with open(pdf_path, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                total_pages = len(reader.pages)
+                logger.info(f"PDF hat {total_pages} Seiten, OCR-Pipeline aktiv")
 
                 paragraphs: List[str] = []
-                # Verarbeite Seiten in Batches, um nicht sofort N Tasks zu erstellen
                 page_batch_size = max(1, _OCR_CONCURRENCY * 2)
+                
                 for start in range(0, total_pages, page_batch_size):
                     batch_pages = list(range(start, min(start + page_batch_size, total_pages)))
-                    tasks = [self._process_page_async(pdf_path, p, total_pages, reader) for p in batch_pages]
+                    tasks = [
+                        self._process_page_async_ocr(pdf_path, p, total_pages, reader)
+                        for p in batch_pages
+                    ]
                     results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
                     for i, res in enumerate(results):
                         if isinstance(res, Exception):
                             logger.error(f"Fehler bei Seite {batch_pages[i]+1}: {res}")
                             continue
-                        if res and res.strip():
-                            candidate = res.strip()
-                            if self._is_usable_para(candidate):
-                                paragraphs.append(candidate)
-                logger.info(f"Erfolgreich {len(paragraphs)} Absätze extrahiert")
+                        if res and isinstance(res, str) and res.strip():
+                            # Normalisiere extrahierten Text
+                            normalized = self.normalizer.normalize_text(res.strip())
+                            if normalized:
+                                for para in self.normalizer.split_into_paragraphs(normalized):
+                                    if self._is_usable_para(para):
+                                        paragraphs.append(para)
+                
+                logger.info(f"Erfolgreich {len(paragraphs)} Absätze extrahiert (OCR-Pipeline)")
                 return paragraphs
+        
         except Exception as e:
-            logger.error(f"Fehler bei PDF-Verarbeitung: {e}")
+            logger.error(f"Fehler bei PDF-Verarbeitung (OCR): {e}")
             return []
 
-    async def _process_page_async(self, pdf_path: str, page_num: int, total_pages: int, reader: PyPDF2.PdfReader) -> Optional[str]:
+    async def _process_page_async_ocr(
+        self,
+        pdf_path: str,
+        page_num: int,
+        total_pages: int,
+        reader: PyPDF2.PdfReader
+    ) -> Optional[str]:
+        """
+        OCR-Verarbeitungspipeline pro Seite mit Fallbacks:
+        1. PyPDF2 direkt
+        2. pdfplumber (für komplexe Layouts)
+        3. OCR mit standard DPI
+        4. OCR mit höherer DPI (Fallback)
+        """
         async with _sema:
             try:
-                logger.debug(f"Verarbeite Seite {page_num + 1}/{total_pages}")
-                page_text = self._extract_text_normal_from_reader(reader, page_num)  # 1) PyPDF2: direkter Textversuch
+                logger.debug(f"Verarbeite Seite {page_num + 1}/{total_pages} (OCR-Pipeline)")
+                
+                # 1) PyPDF2 direkt
+                page_text = self._extract_text_normal_from_reader(reader, page_num)
                 if self._is_text_sufficient(page_text):
+                    logger.debug(f"Seite {page_num+1}: PyPDF2 ausreichend")
                     return page_text
 
-                # 2) OCR (leicht): Seite rendern und mit Tesseract lesen
-                ocr_light = await self._extract_text_ocr(pdf_path, page_num, dpi=self.default_dpi, psm=self.primary_psm)
+                # 2) pdfplumber als zweiter Versuch
+                plumber_text = await self._extract_with_pdfplumber(pdf_path, page_num)
+                if self._is_text_sufficient(plumber_text):
+                    logger.debug(f"Seite {page_num+1}: pdfplumber ausreichend")
+                    return plumber_text
+
+                # 3) OCR leicht: Standard DPI + PSM
+                logger.debug(f"Seite {page_num+1}: starte OCR (leicht)...")
+                ocr_light = await self._extract_text_ocr(
+                    pdf_path, page_num,
+                    dpi=self.default_dpi,
+                    psm=self.primary_psm
+                )
                 if self._is_text_sufficient(ocr_light):
+                    logger.debug(f"Seite {page_num+1}: OCR (leicht) ausreichend")
                     return ocr_light
 
-                # 3) OCR (Fallback): höhere DPI/angepasster PSM als zweite Chance
-                ocr_fallback = await self._extract_text_ocr(pdf_path, page_num, dpi=self.fallback_dpi, psm=self.fallback_psm)
-                return ocr_fallback or page_text
+                # 4) OCR Fallback: höhere DPI + anderer PSM
+                logger.debug(f"Seite {page_num+1}: starte OCR (Fallback mit höherer DPI)...")
+                ocr_fallback = await self._extract_text_ocr(
+                    pdf_path, page_num,
+                    dpi=self.fallback_dpi,
+                    psm=self.fallback_psm
+                )
+                
+                if ocr_fallback:
+                    logger.debug(f"Seite {page_num+1}: OCR (Fallback) verwendet")
+                    return ocr_fallback
+                
+                # Letzte Option: kombiniere was verfügbar ist
+                combined = (page_text or "") + "\n" + (plumber_text or "")
+                if combined.strip():
+                    logger.debug(f"Seite {page_num+1}: kombinierte Extraction")
+                    return combined
+                
+                logger.debug(f"Seite {page_num+1}: keine Extraktion erfolgreich")
+                return ""
+            
             except Exception as e:
                 logger.error(f"Seite {page_num + 1}: {e}")
                 return ""
@@ -143,6 +341,9 @@ class OptimizedPDFParser:
     def _is_usable_para(self, p: str) -> bool:
         if not p:
             return False
+        # Табличные строки (markdown/ASCII) оставляем сразу, чтобы не отбрасывать полезные ячейки
+        if p.count("|") >= 2:
+            return True
         cleaned = re.sub(r'\s+', '', p)
         # Behalten Sie kurze, prägnante Linien bei, auch wenn die Länge gering ist.
         if DEFN_RE.search(p):
@@ -165,8 +366,14 @@ class OptimizedPDFParser:
             return ""
 
     async def _extract_text_ocr(self, pdf_path: str, page_num: int, dpi: int, psm: int) -> str:
+        """
+        OCR-Extraktion mit Bildvorbereitung:
+        1. Render PDF-Seite als Bild
+        2. Preprocessing: Resize, Grayscale, Contrast-Enhancement
+        3. Tesseract OCR mit angepassten PSM-Parametern
+        """
         try:
-            images = await asyncio.to_thread(  # pdf2image in Thread: PDF-Seite -> PIL.Image Liste
+            images = await asyncio.to_thread(
                 pdf2image.convert_from_path,
                 pdf_path,
                 first_page=page_num + 1,
@@ -176,14 +383,14 @@ class OptimizedPDFParser:
             )
             if not images:
                 return ""
-            image = images[0]  # Erste (und einzige) gerenderte Seite
+            
+            image = images[0]
             try:
-                if image.width > self.max_width:  # Optionales Downscaling zur Reduktion von OCR-Laufzeit
-                    ratio = self.max_width / image.width
-                    new_size = (int(image.width * ratio), int(image.height * ratio))
-                    image = image.resize(new_size, Image.LANCZOS)  # PIL: hochwertiges Resize
-                image = image.convert("L")  # PIL: in Graustufen konvertieren (robusteres OCR)
-                text = await asyncio.to_thread(  # Tesseract OCR auf dem Bild
+                # Bildvorbereitung für robusteres OCR
+                image = self._preprocess_image_for_ocr(image)
+                
+                # Tesseract OCR mit Language + PSM Config
+                text = await asyncio.to_thread(
                     pytesseract.image_to_string,
                     image,
                     lang='+'.join(self.languages),
@@ -192,13 +399,45 @@ class OptimizedPDFParser:
                 return text or ""
             finally:
                 try:
-                    image.close()  # PIL-Ressourcen freigeben
+                    image.close()
                 except Exception:
                     pass
                 del images
         except Exception as e:
             logger.debug(f"OCR fehlgeschlagen (dpi={dpi}, psm={psm}) auf Seite {page_num+1}: {e}")
             return ""
+
+    def _preprocess_image_for_ocr(self, image: Image.Image) -> Image.Image:
+        """
+        Bildvorbereitung für OCR-Pipeline:
+        1. Optional Resize (Downscaling für Geschwindigkeit)
+        2. Grayscale-Konvertierung
+        3. Contrast-Enhancement (optional)
+        """
+        try:
+            # 1) Optional Downscaling zur Reduktion der OCR-Laufzeit
+            if image.width > self.max_width:
+                ratio = self.max_width / image.width
+                new_size = (int(image.width * ratio), int(image.height * ratio))
+                image = image.resize(new_size, Image.Resampling.LANCZOS)
+            
+            # 2) In Grayscale konvertieren (robuster für OCR)
+            image = image.convert("L")
+            
+            # 3) Optional: Contrast Enhancement via Bildoperation
+            # (Kann die OCR-Genauigkeit bei schlecht gedruckten Dokumenten verbessern)
+            # ImageEnhance import nur bei Bedarf
+            try:
+                from PIL import ImageEnhance
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(1.2)  # +20% Kontrast
+            except Exception:
+                pass  # Falls ImageEnhance nicht verfügbar, weitermachen
+            
+            return image
+        except Exception as e:
+            logger.debug(f"Bildvorbereitung OCR Fehler: {e}")
+            return image
 
     def _is_text_sufficient(self, text: str) -> bool:
         if not text:
@@ -216,13 +455,19 @@ class OptimizedPDFParser:
             return False
         return True
 
-# Globale Instanz
+# Globальный экземпляр парсера
 pdf_parser = OptimizedPDFParser()
+
+# ============================================================================
+# UTILITY FUNCTIONS FOR TITLES & SCREENSHOTS
+# ============================================================================
 
 def extract_paragraphs_from_pdf(pdf_path: str) -> List[str]:
     """
     Synchrone Wrapper-Funktion für CLI/Skripte OHNE aktiven Event-Loop.
     Wenn bereits ein Event-Loop läuft (z.B. innerhalb eines Webhooks), wird ein verständlicher Fehler ausgelöst.
+    
+    Nutzt die komplette OCR-Pipeline (wenn OCR_ENABLED=1) oder schnelle Text-Extraktion (PyPDF2+pdfplumber).
     """
     try:
         _loop = asyncio.get_running_loop()
@@ -232,6 +477,7 @@ def extract_paragraphs_from_pdf(pdf_path: str) -> List[str]:
     # Aktiver Loop vorhanden → blockierendes run() nicht erlaubt
     raise RuntimeError("extract_paragraphs_from_pdf cannot be used inside an active event loop; use async API")
 
+
 # --- Zusatzfunktionen für Titel/Seiten-Screenshots ---
 # Regex (ohne überflüssige Escape-Zeichen): sucht nach Figure/Abbildung/Table/Tabelle oder nummerierten Überschriften
 TITLE_PATTERNS = re.compile(
@@ -240,37 +486,100 @@ TITLE_PATTERNS = re.compile(
 )
 
 def extract_titles_from_pdf(pdf_path: str) -> List[Dict]:
-    """Heuristisch Titel/Überschriften/Tabellen-Abbildungen pro Seite extrahieren (synchron)."""
+    """
+    Heuristisch Titel/Überschriften/Tabellen-Abbildungen pro Seite extrahieren (synchron).
+    Nutzt PyPDF2 + pdfplumber-Fallback für bessere Erkennung.
+    """
     out: List[Dict] = []
     try:
-        reader = PyPDF2.PdfReader(pdf_path)  # PyPDF2: Datei laden
-        total = len(reader.pages)  # Anzahl Seiten
-        for i in range(total):
-            try:
-                txt = reader.pages[i].extract_text() or ""  # PyPDF2: Seitentext
-            except Exception:
-                txt = ""
-            lines = [l.strip() for l in txt.splitlines() if l.strip()]
-            for line in lines:
-                if TITLE_PATTERNS.match(line):
-                    title = re.sub(r'\s+', ' ', line)[:200]
-                    out.append({"title": title, "page": i + 1, "type": "title"})
+        with pdfplumber.open(pdf_path) as pdf:
+            total = len(pdf.pages)
+            for i in range(total):
+                try:
+                    page = pdf.pages[i]
+                    txt = page.extract_text() or ""
+                except Exception:
+                    txt = ""
+                
+                if not txt:
+                    continue
+                
+                lines = [l.strip() for l in txt.splitlines() if l.strip()]
+                for line in lines:
+                    if TITLE_PATTERNS.match(line):
+                        # Normalisiere und kürze
+                        title = re.sub(r'\s+', ' ', line)[:200]
+                        # Normalisiere auch den Titel
+                        normalizer = TextNormalizer()
+                        title = normalizer.normalize_text(title)
+                        out.append({"title": title, "page": i + 1, "type": "title"})
     except Exception as e:
-        logger.debug(f"extract_titles_from_pdf Fehler: {e}")
+        logger.debug(f"extract_titles_from_pdf Fehler (pdfplumber): {e}")
+        # Fallback auf PyPDF2
+        try:
+            reader = PyPDF2.PdfReader(pdf_path)
+            total = len(reader.pages)
+            for i in range(total):
+                try:
+                    txt = reader.pages[i].extract_text() or ""
+                except Exception:
+                    txt = ""
+                
+                if not txt:
+                    continue
+                
+                lines = [l.strip() for l in txt.splitlines() if l.strip()]
+                for line in lines:
+                    if TITLE_PATTERNS.match(line):
+                        title = re.sub(r'\s+', ' ', line)[:200]
+                        out.append({"title": title, "page": i + 1, "type": "title"})
+        except Exception as e2:
+            logger.debug(f"extract_titles_from_pdf Fallback-Fehler: {e2}")
+    
     return out
 
 def get_page_image_bytes(pdf_path: str, page_num: int, dpi: int = 180) -> bytes:
-    """Rendert eine einzelne Seite als PNG-Bytes."""
+    """Rendert eine einzelne Seite als PNG-Bytes für Screenshots."""
     try:
-        images = pdf2image.convert_from_path(  # pdf2image: PDF-Seite -> PIL Image(s)
+        images = pdf2image.convert_from_path(
             pdf_path, first_page=page_num, last_page=page_num, dpi=dpi, fmt='PNG'
         )
         if not images:
             return b""
         buf = io.BytesIO()
-        images[0].save(buf, format="PNG")  # PIL: als PNG in Speicher schreiben
-        images[0].close()  # Ressourcen freigeben
+        images[0].save(buf, format="PNG")
+        images[0].close()
         return buf.getvalue()
     except Exception as e:
         logger.debug(f"get_page_image_bytes Fehler: {e}")
         return b""
+
+
+# ============================================================================
+# IMPLEMENTATION SUMMARY
+# ============================================================================
+# 
+# Primär: PyPDF2 (Text-PDFs)
+# ├─ Robuste Text-Extraktion aus standardisierten PDF-Strukturen
+# ├─ Direkter Zugriff auf Seiten
+# └─ Optimiert für schnelle Verarbeitung
+#
+# Zusätzlich: pdfplumber für robuste Extraktion
+# ├─ Komplexe Layouts und Tabellen
+# ├─ Fallback wenn PyPDF2 unzureichend ist
+# └─ Tabellen-Extraktion + Text
+#
+# OCR-Pipeline vorbereitet (pytesseract + pdf2image)
+# ├─ Nur wenn OCR_ENABLED=1
+# ├─ Multi-Strategy: Standard DPI → Fallback (höhere DPI + angepasster PSM)
+# ├─ Sperrsemaphor für Concurrency-Kontrolle
+# └─ Async-Processing für Skalierbarkeit
+#
+# Normalisierung: Zeilenumbrüche, Silbentrennung, saubere Absätze
+# ├─ TextNormalizer-Klasse für Unicode-Normalisierung (NFD→NFKC)
+# ├─ Behandlung von Silbentrennung über Zeilenumbrüche ("threat-\nanalysis"→"threatanalysis")
+# ├─ Absatz-intelligente Aufteilung (\n\n Respekt)
+# ├─ Ligatur-Ersetzung (ﬁ→fi, ﬂ→fl)
+# └─ Whitespace-Bereinigung (mehrfache Leerzeichen, Satzzeichen)
+#
+# ============================================================================

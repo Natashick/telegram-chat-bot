@@ -104,7 +104,6 @@ def _build_docs_keyboard(pdfs: List[str]) -> InlineKeyboardMarkup:
     if row:
         buttons.append(row)
     return InlineKeyboardMarkup(buttons)
-
  
 
 def get_pdf_files() -> List[str]:
@@ -169,6 +168,8 @@ async def button_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     if q.data in ("page_prev", "page_next"):
         st = user_pages_state.get(q.from_user.id) or {}
         pages = st.get("pages") or []
+        use_html = bool(st.get("html"))
+        parse_mode = ParseMode.HTML if use_html else None
         if not pages:
             return
         old_idx = st.get("idx", 0)
@@ -184,7 +185,16 @@ async def button_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         user_pages_state[q.from_user.id] = st
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Prev", callback_data="page_prev"),
                                     InlineKeyboardButton("▶️ Next", callback_data="page_next")]])
-        await q.edit_message_text(pages[idx] + f"\n\n📄 {idx+1}/{len(pages)}", reply_markup=kb, disable_web_page_preview=True)
+        try:
+            await q.edit_message_text(pages[idx] + f"\n\n📄 {idx+1}/{len(pages)}",
+                                      reply_markup=kb,
+                                      disable_web_page_preview=True,
+                                      parse_mode=parse_mode)
+        except Exception as e:
+            logger.warning(f"Edit failed, fallback to plain: {e}")
+            await q.edit_message_text(pages[idx] + f"\n\n📄 {idx+1}/{len(pages)}",
+                                      reply_markup=kb,
+                                      disable_web_page_preview=True)
         return
     if q.data == "shot_start":
         # start document selection
@@ -252,30 +262,55 @@ async def button_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE):
 # --- Paginierungshilfen (klein) ---
 
 def _split_pages(text: str, max_len: int = 3600) -> List[str]:
+    """Умная пагинация: по абзацам/предложениям, чтобы не резать теги/блоки."""
     if len(text) <= max_len:
         return [text]
-    pages = []
-    start = 0
-    while start < len(text):
-        end = min(len(text), start + max_len)
-        pages.append(text[start:end])
-        start = end
+    pages: List[str] = []
+    current = ""
+    paragraphs = text.split("\n\n")
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        if len(current) + len(para) + 2 <= max_len:
+            current = (current + "\n\n" + para) if current else para
+            continue
+        if current:
+            pages.append(current)
+            current = ""
+        if len(para) > max_len:
+            sentences = re.split(r"(?<=[\.\!\?])\s+", para)
+            buf = ""
+            for s in sentences:
+                if len(buf) + len(s) + 1 <= max_len:
+                    buf = (buf + " " + s) if buf else s
+                else:
+                    if buf:
+                        pages.append(buf)
+                    buf = s
+            current = buf
+        else:
+            current = para
+    if current:
+        pages.append(current)
     return pages
 
 async def _send_paginated(update: Update, _context: ContextTypes.DEFAULT_TYPE, text: str):
     user_id = update.effective_user.id
+    # автоопределение режима
+    use_html = ("<pre>" in (text or "")) or ("<b>" in (text or ""))
+    parse_mode = ParseMode.HTML if use_html else None
     pages = _split_pages(text)
     try:
         if len(pages) == 1:
             await update.message.reply_text(
                 pages[0],
-                disable_web_page_preview=True,  # keine Link-Vorschau erlauben
-                parse_mode=ParseMode.HTML,
-                protect_content=PROTECT_CONTENT,  # Telegram‑Schutzflag
+                disable_web_page_preview=True,
+                parse_mode=parse_mode,
+                protect_content=PROTECT_CONTENT,
             )
             return
-
-        user_pages_state[user_id] = {'pages': pages, 'idx': 0}
+        user_pages_state[user_id] = {'pages': pages, 'idx': 0, 'html': use_html}
         kb = InlineKeyboardMarkup(
             [
                 [
@@ -288,7 +323,7 @@ async def _send_paginated(update: Update, _context: ContextTypes.DEFAULT_TYPE, t
             pages[0] + f"\n\n📄 1/{len(pages)}",
             reply_markup=kb,
             disable_web_page_preview=True,
-            parse_mode=ParseMode.HTML,
+            parse_mode=parse_mode,
             protect_content=PROTECT_CONTENT,
         )
         user_pages_state[user_id]['last_message_id'] = msg.message_id
@@ -297,12 +332,12 @@ async def _send_paginated(update: Update, _context: ContextTypes.DEFAULT_TYPE, t
         if len(pages) == 1:
             await update.message.reply_text(
                 pages[0],
-                parse_mode=ParseMode.HTML,
+                parse_mode=None,
                 disable_web_page_preview=True,
                 protect_content=PROTECT_CONTENT,
             )
             return
-        user_pages_state[user_id] = {'pages': pages, 'idx': 0}
+        user_pages_state[user_id] = {'pages': pages, 'idx': 0, 'html': False}
         kb = InlineKeyboardMarkup(
             [
                 [
@@ -314,7 +349,7 @@ async def _send_paginated(update: Update, _context: ContextTypes.DEFAULT_TYPE, t
         msg = await update.message.reply_text(
             pages[0] + f"\n\n📄 1/{len(pages)}",
             reply_markup=kb,
-            parse_mode=ParseMode.HTML,
+            parse_mode=None,
             disable_web_page_preview=True,
             protect_content=PROTECT_CONTENT,
         )
@@ -476,7 +511,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         all_chunks = await get_best_chunks_global(user_question, max_chunks=MAX_EXCERPTS)
     except Exception as e:
         logger.debug("Global retrieval error: %s", e)
-    all_chunks = []
+
 
     # Fallback: wenn zu wenige globale Ergebnisse vorliegen, pro Dokument parallel abfragen
     if not all_chunks or len(all_chunks) < max(4, MAX_EXCERPTS // 2):
