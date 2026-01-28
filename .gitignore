@@ -53,7 +53,9 @@ chroma_db/
 .env.production
 
 # SECURITY: Sensitive data
-*.md
+# *.md  # Commented out to allow documentation files
+!docs/**/*.md  # Allow documentation files
+!README.md     # Allow main README
 deploy.ps1
 Untitled-1.txt
 *deployment*
