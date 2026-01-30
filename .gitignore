@@ -52,9 +52,9 @@ chroma_db/
 .env.local
 .env.production
 chat*bot.txt
-Uninotes.txt
-"verbesserung für bot.docx"
-"Microsoft Word-Dokument (neu).docx"
+Untitled.txt
+verbesserung*für*bot.docx
+Microsoft*Word-Dokument*(neu).docx
 
 # SECURITY: Sensitive data
 # *.md  # Commented out to allow documentation files
