@@ -5,6 +5,7 @@ import logging
 import asyncio
 from typing import Dict, List
 import io
+import contextlib
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
@@ -79,12 +80,30 @@ user_pages_state: Dict[int, Dict] = {}
 # Einfacher Screenshot-Zustand pro Benutzer
 SCREENSHOT_STATE: Dict[int, Dict] = {}
 
+async def _typing_loop(bot, chat_id: int, stop_evt: asyncio.Event, period: float = 4.0) -> None:
+    """Periodically send 'typing…' action until stop_evt is set."""
+    try:
+        while not stop_evt.is_set():
+            try:
+                await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except Exception:
+                # Never propagate typing errors
+                pass
+            try:
+                await asyncio.wait_for(stop_evt.wait(), timeout=period)
+            except asyncio.TimeoutError:
+                continue
+    except Exception:
+        # Swallow any unexpected errors to not break the main flow
+        pass
+
 def _is_screenshot_target_query(text: str) -> bool:
     """Return True if text looks like a page/table/figure reference."""
     if not text:
         return False
     t = text.strip()
-    if re.search(r"(?i)\b(seite|page)\s*\d+\b", t):
+    # Accept arabic numbers and roman numerals (i, ii, iii, iv, v, vi, ...)
+    if re.search(r"(?i)\b(seite|page)\s*([ivxlcdm]+|\d+)\b", t):
         return True
     # akzeptiere numerisch (3) und alphanumerisch wie H.3 / H-3 / H3
     if re.search(r"(?i)\b(tab(?:elle)?|table)\s*([A-Za-z]\s*[\.\-]?\s*\d+|\d+)\b", t):
@@ -221,12 +240,27 @@ async def button_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         doc_path = pdfs[idx]
         SCREENSHOT_STATE[q.from_user.id] = {"mode": "awaiting_target", "doc": doc_path}
         back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Dokument wählen", callback_data="shot_start")]])
-        await q.edit_message_text(
-            f"Ausgewählt: {os.path.basename(doc_path)}\n"
+        # Kurze, klare Instruktion mit Seitenspezifika
+        name = os.path.basename(doc_path)
+        instr = (
             "Geben Sie ein, was gerendert werden soll, z.B.:\n"
             "• „Seite 10“ oder „Page 10“\n"
             "• „Tabelle 3“ / „Table 3“ oder „Abbildung 2“ / „Figure 2“\n"
-            "• oder einen Titel-/Kapiteltext",
+            "• oder einen Titel-/Kapiteltext\n\n"
+        )
+        # Spezielle Hinweise je Dokument
+        if name == "Interpretation Document.pdf":
+            extra = "Hinweis: In „Interpretation Document.pdf“ gibt es 40 Seiten, nummeriert 1–40."
+        elif name == "UNR 155.pdf":
+            extra = "Hinweis: In „UNR 155.pdf“ gibt es 30 Seiten, nummeriert 1–30."
+        elif name == "ISO SAE 21434.pdf":
+            extra = ("Hinweis: In „ISO SAE 21434.pdf“ gibt es 82 Seiten. "
+                     "Die ersten 6 Seiten sind römisch i–vi (die Titelseite ohne Kennzeichnung), "
+                     "danach 1–81. Sie können z. B. „Seite iv“ oder „Seite 10“ eingeben.")
+        else:
+            extra = ""
+        await q.edit_message_text(
+            f"Ausgewählt: {os.path.basename(doc_path)}\n{instr}{extra}",
             reply_markup=back_kb,
             disable_web_page_preview=True
         )
@@ -369,7 +403,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _shot = SCREENSHOT_STATE.get(user_id, {})
     # Nur abfangen, wenn der Benutzer sich im Screenshot-Zielmodus befindet UND der Text wie eine Zielabfrage aussieht.
     if _shot.get("mode") in ("awaiting_target",) and _is_screenshot_target_query(user_question):
-        from pdf_parser import get_page_image_bytes, extract_titles_from_pdf
+        from pdf_parser import get_page_image_bytes, extract_titles_from_pdf, get_page_label_map
         doc_path = _shot.get("doc")
         if not doc_path or not os.path.exists(doc_path):
             SCREENSHOT_STATE[user_id] = {"mode": "pick_doc"}
@@ -379,9 +413,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt = user_question.strip()
         # 1) explizite Seitenzahl
         # Akzeptiere "Seite 10" oder "Page 10" (Groß-/Kleinschreibung ignorieren)
-        m = re.search(r"(?i)\b(seite|page)\s*(\d+)", txt)
+        # Zusätzlich: akzeptiere römische Zahlen (i, ii, iii, iv, v, vi ...)
+        m = re.search(r"(?i)\b(seite|page)\s*([ivxlcdm]+|\d+)\b", txt)
         if m:
-            page = int(m.group(2))
+            label = m.group(2)
+            lbl_norm = label.strip()
+            label_map = {}
+            try:
+                label_map = get_page_label_map(doc_path) or {}
+            except Exception:
+                label_map = {}
+            page = None
+            if label_map:
+                # zuerst versuchen, прямой ключ
+                page = label_map.get(lbl_norm)
+                # потом попробовать нормализованные варианты
+                if page is None:
+                    page = label_map.get(lbl_norm.lower()) or label_map.get(lbl_norm.upper())
+                # если всё ещё None и это арабское число
+                if page is None and lbl_norm.isdigit():
+                    page = label_map.get(str(int(lbl_norm)))
+            # Если мапы нет/не нашли — простой числовой fallback
+            if page is None:
+                try:
+                    page = int(lbl_norm)  # если это было арабское число
+                except Exception:
+                    # простая римская конверсия на случай отсутствия PageLabels
+                    roman = lbl_norm.upper()
+                    roman_vals = {'M':1000,'CM':900,'D':500,'CD':400,'C':100,'XC':90,'L':50,'XL':40,'X':10,'IX':9,'V':5,'IV':4,'I':1}
+                    i = 0; total = 0
+                    while i < len(roman):
+                        if i+1 < len(roman) and roman[i:i+2] in roman_vals:
+                            total += roman_vals[roman[i:i+2]]; i += 2
+                        elif roman[i] in roman_vals:
+                            total += roman_vals[roman[i]]; i += 1
+                        else:
+                            total = 0; break
+                    page = total if total > 0 else None
+            if not page or page <= 0:
+                await update.message.reply_text("Seite nicht gefunden.", disable_web_page_preview=True)
+                return
             try:
                 img = get_page_image_bytes(doc_path, page)
             except Exception as e:
@@ -391,10 +462,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("Seite konnte nicht gerendert werden.", disable_web_page_preview=True)
                 return
             SCREENSHOT_STATE.pop(user_id, None)
+            # Caption: show both the requested printed label and the actual PDF index to avoid confusion
+            printed = lbl_norm
             await context.bot.send_photo(
                 update.effective_chat.id,
                 io.BytesIO(img),
-                caption=f"📄 {os.path.basename(doc_path)} – Seite {page}",
+                caption=(
+                    f"📄 {os.path.basename(doc_path)} – "
+                    f"Seite {printed} (gedruckt) → PDF {page}"
+                ),
                 protect_content=PROTECT_CONTENT,
             )
             return
@@ -552,26 +628,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if defs:
             # Gefundene Definitionen über LLM umformulieren (ohne rohe Zitate)
             combined_context = "\n\n".join([(d.get("text") or "").strip() for d in defs[:3]])
-            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+            stop_evt = asyncio.Event()
+            task = asyncio.create_task(_typing_loop(context.bot, update.effective_chat.id, stop_evt))
             try:
-                answer = await ask_ollama(user_question, combined_context, defs[:3], target_language=context.user_data.get("lang", "DE"))
+                answer = await ask_ollama(
+                    user_question,
+                    combined_context,
+                    defs[:3],
+                    target_language=(context.user_data.get("lang", "DE") if hasattr(context, "user_data") else "DE"),
+                )
+                await _send_paginated(update, context, answer)
             except Exception as e:
                 logger.exception("LLM paraphrase error: %s", e)
                 await update.message.reply_text("Fehler beim Generieren der Antwort.")
-                return
-            await _send_paginated(update, context, answer)
+            finally:
+                stop_evt.set()
+                with contextlib.suppress(Exception):
+                    await task
             return
         # Wenn eine genaue Zitat mit dem Begriff gefunden wird
         exact = find_chunk_with_term(term, all_chunks)
         if exact:
-            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+            stop_evt2 = asyncio.Event()
+            task2 = asyncio.create_task(_typing_loop(context.bot, update.effective_chat.id, stop_evt2))
             try:
-                answer = await ask_ollama(user_question, exact, [{"text": exact}], target_language=context.user_data.get("lang", "DE"))
+                answer = await ask_ollama(
+                    user_question, exact, [{"text": exact}], target_language=context.user_data.get("lang", "DE")
+                )
+                await _send_paginated(update, context, answer)
             except Exception as e:
                 logger.exception("LLM paraphrase error for exact chunk: %s", e)
                 await update.message.reply_text("Fehler beim Generieren der Antwort.")
-                return
-            await _send_paginated(update, context, answer)
+            finally:
+                stop_evt2.set()
+                with contextlib.suppress(Exception):
+                    await task2
             return
 
     # Fallback: kombinierte Auszüge vorbereiten und LLM mit strengem Prompt aufrufen
@@ -585,15 +676,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # keine Unterbrechung der Antwort; das Modell kann trotzdem eine nützliche kurze Erklärung geben
             pass
     combined = build_combined_excerpts(final_chunks)
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    stop_evt3 = asyncio.Event()
+    task3 = asyncio.create_task(_typing_loop(context.bot, update.effective_chat.id, stop_evt3))
     try:
-        answer = await ask_ollama(user_question, combined, final_chunks, target_language=context.user_data.get("lang", "DE"))
+        answer = await ask_ollama(
+            user_question,
+            combined,
+            final_chunks,
+            target_language=(context.user_data.get("lang", "DE") if hasattr(context, "user_data") else "DE"),
+        )
+        await _send_paginated(update, context, answer)
     except Exception as e:
-        logger.exception("LLM call failed: %s", e)
+        logger.exception("Llm call failed: %s", e)
         await update.message.reply_text("Fehler beim Generieren der Antwort.")
-        return
-
-    await _send_paginated(update, context, answer)
+    finally:
+        stop_evt3.set()
+        with contextlib.suppress(Exception):
+            await task3
 
 # --- Einfacher Screenshot-Befehl Platzhalter ---
 

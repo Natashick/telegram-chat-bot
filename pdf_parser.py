@@ -11,6 +11,7 @@ from PIL import Image         # Bildverarbeitung (Resize, Grayscale, OCR-Vorbere
 import os
 import io
 import unicodedata            # Text-Normalisierung
+from functools import lru_cache
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -554,6 +555,163 @@ def get_page_image_bytes(pdf_path: str, page_num: int, dpi: int = 180) -> bytes:
         logger.debug(f"get_page_image_bytes Fehler: {e}")
         return b""
 
+
+# ============================================================================
+# PAGE LABELS (sichtbare Seitenbezeichnungen) → PDF-Seitenindex
+# ============================================================================
+
+_LABEL_CACHE: Dict[str, Dict[str, int]] = {}
+
+def _int_to_roman(n: int, upper: bool) -> str:
+    if n <= 0:
+        return ""
+    vals = [
+        (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+        (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+        (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I'),
+    ]
+    out = []
+    for v, sym in vals:
+        while n >= v:
+            out.append(sym)
+            n -= v
+    s = "".join(out)
+    return s if upper else s.lower()
+
+def _make_label(number: int, style: str | None, prefix: str | None) -> str:
+    # style: '/D' decimal, '/r' roman lower, '/R' roman upper, '/A' '/a' (alphabetic) – wir unterstützen D/r/R
+    if style in ("/r", "r"):
+        num = _int_to_roman(number, upper=False)
+    elif style in ("/R", "R"):
+        num = _int_to_roman(number, upper=True)
+    else:
+        num = str(number)
+    pre = prefix or ""
+    return f"{pre}{num}"
+
+def _extract_page_labels(reader: PyPDF2.PdfReader) -> Dict[str, int]:
+    """
+    Parst /PageLabels NumberTree und baut Mapping: sichtbare Bezeichnung -> 1-basierter PDF‑Seitenindex.
+    Nur häufige Styles (D, r, R) werden unterstützt; Rest fällt auf Dezimal zurück.
+    """
+    try:
+        root = reader.trailer.get("/Root")
+        if root is None:
+            return {}
+        page_labels = root.get("/PageLabels")
+        if page_labels is None:
+            return {}
+        try:
+            labels_dict = page_labels.get_object()
+        except Exception:
+            labels_dict = page_labels
+        nums = labels_dict.get("/Nums")
+        if not nums:
+            return {}
+        try:
+            nums = list(nums)
+        except Exception:
+            return {}
+        # nums ist eine Liste: [page_index0, dict0, page_index1, dict1, ...]
+        total = len(reader.pages)
+        runs: List[Tuple[int, dict]] = []
+        i = 0
+        while i + 1 < len(nums):
+            try:
+                idx_obj = nums[i]
+                spec_obj = nums[i+1]
+                try:
+                    idx = int(idx_obj)
+                except Exception:
+                    idx = int(getattr(idx_obj, "value", 0))
+                try:
+                    spec = spec_obj.get_object()
+                except Exception:
+                    spec = spec_obj
+                if not isinstance(spec, dict):
+                    spec = {}
+                runs.append((max(0, idx), spec))
+            except Exception:
+                pass
+            i += 2
+        runs.sort(key=lambda t: t[0])
+        # Build mapping
+        mapping: Dict[str, int] = {}
+        for j, (start, spec) in enumerate(runs):
+            end = runs[j+1][0] - 1 if j + 1 < len(runs) else total - 1
+            style = spec.get("/S")
+            prefix = spec.get("/P")
+            start_num = int(spec.get("/St", 1))
+            cur = start_num
+            for p in range(start, min(end, total - 1) + 1):
+                label = _make_label(cur, style, prefix)
+                # 1-basierter PDF‑Index
+                mapping[str(label).strip()] = p + 1
+                # zusätzlich: reine Zahl ohne Präfix, falls vorhanden
+                try:
+                    mapping[str(cur)] = p + 1
+                except Exception:
+                    pass
+                # auch römische/arabische Varianten ohne Präфикс зарезервируем
+                if style in ("/r", "r", "/R", "R"):
+                    mapping[_int_to_roman(cur, upper=(style in ("/R", "R")))] = p + 1
+                    mapping[_int_to_roman(cur, upper=False)] = p + 1
+                    mapping[_int_to_roman(cur, upper=True)] = p + 1
+                cur += 1
+        return mapping
+    except Exception as e:
+        logger.debug(f"PageLabels parsing failed: {e}")
+        return {}
+
+def _fallback_offset_map(pdf_path: str, total_pages: int) -> Dict[str, int]:
+    """
+    Запасной оффсет для известных файлов: титульные без номера + римские i…vi, затем арабские 1…
+    Для других документов возвращает пустую карту.
+    """
+    name = os.path.basename(pdf_path)
+    # Значения по задаче: ISO SAE 21434: титульная (без метки) + i..vi = 7 страниц, затем 1..81
+    if name == "ISO SAE 21434.pdf":
+        title_pages = 1
+        roman_pages = 6
+        start_pdf = title_pages + roman_pages  # 1‑based индекс страницы, после которой начинается печатная "1"
+        mapping: Dict[str, int] = {}
+        # На практике в данном файле пользователи вводят "ii", "iii", … — устраним систематическое смещение +1.
+        # Маппим: ii→2, iii→3, …, vi→(title_pages + 5) = 6, а при наличии "i" — считаем его как страницу 2.
+        romans = ["i", "ii", "iii", "iv", "v", "vi"]
+        for k, r in enumerate(romans, start=0):
+            # титул = 1, желаемое: ii→2 (k=1 ⇒ 1+1=2), …; i (если попросят) тоже даём 2
+            pdf_index = max(2, title_pages + k)
+            mapping[r] = pdf_index
+            mapping[r.upper()] = pdf_index
+        # Арабские 1.. до конца. Ранее был систематический сдвиг +1, убираем его:
+        printed = 1
+        p = start_pdf  # 1‑based PDF‑индекс первой арабской страницы (без +1)
+        while p <= total_pages and printed <= 200:
+            mapping[str(printed)] = p
+            printed += 1
+            p += 1
+        return mapping
+    return {}
+
+def get_page_label_map(pdf_path: str) -> Dict[str, int]:
+    """
+    Возвращает кэшированную карту: sichtbare Seitenbezeichnung ('i','vi','1','10', ggf. mit Präfix) → 1‑basierter PDF‑Index.
+    """
+    try:
+        cached = _LABEL_CACHE.get(pdf_path)
+        if cached is not None:
+            return cached
+        with open(pdf_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            total = len(reader.pages)
+            mapping = _extract_page_labels(reader)
+            if not mapping:
+                mapping = _fallback_offset_map(pdf_path, total)
+            _LABEL_CACHE[pdf_path] = mapping or {}
+            return mapping or {}
+    except Exception as e:
+        logger.debug(f"get_page_label_map failed: {e}")
+        return {}
 
 # ============================================================================
 # IMPLEMENTATION SUMMARY

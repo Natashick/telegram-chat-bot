@@ -145,7 +145,7 @@ class VectorStore:
         # Erlaube kürzere Definitionen (behalte prägnante Glossar-ähnliche Zeilen bei)
         if s.count("|") >= 2:
             return True
-        if re.search(fr"\b[A-ZÄÖÜ]{2,10}\b\s*(?:[---:]\s|\()", s, re.IGNORECASE):
+        if re.search(r"\b[A-ZÄÖÜ]{2,10}\b\s*(?:[-–—:]\s*|\()", s, re.IGNORECASE):
             return True
         if len(s) < self.min_chunk_chars:
             return False
@@ -552,6 +552,49 @@ class VectorStore:
         except Exception as e:
             logger.error("search_global error: %s", e)
             return []
+
+    def search_keyword(
+        self,
+        term: str,
+        n_results: int = 50,
+        *, case_sensitive: bool = False
+    ) -> List[Dict]:
+        """Direkte Substring‑Suche in Dokumenttexten via where_document ($contains).
+        Liefert Liste von Chunks mit einfacher Score‑Heuristik.
+        """
+        if not term:
+            return []
+        try:
+            needle = term if case_sensitive else term.lower()
+            where_doc = {"$contains": term if case_sensitive else needle}
+            res = self.collection.get(where_document=where_doc, include=["documents", "metadatas"])
+        except Exception as e:
+            logger.debug("search_keyword get failed: %s", e)
+            return []
+        docs = res.get("documents", [[]])
+        metas = res.get("metadatas", [[]])
+        if isinstance(docs, list) and docs and isinstance(docs[0], list):
+            docs = docs[0]
+            metas = metas[0] if isinstance(metas, list) else []
+        out: List[Dict] = []
+        for i, doc in enumerate(docs):
+            meta = metas[i] if i < len(metas) else {}
+            txt = (doc or "")
+            hay = txt if case_sensitive else txt.lower()
+            if needle in hay:
+                # повышение, если совпадение по слову (границы слова)
+                exact = re.search(rf"(?<![A-Za-zÄÖÜäöüß]){re.escape(needle)}(?![A-Za-zÄÖÜäöüß])", hay) if not case_sensitive else re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", txt)
+                score = 1.0 if exact else 0.7
+                out.append({
+                    "doc_id": meta.get("source", meta.get("doc_id", "")),
+                    "chunk_id": meta.get("chunk_id", ""),
+                    "chunk_index": meta.get("chunk_index", 0),
+                    "text": txt,
+                    "similarity_score": float(score),
+                    "metadata": meta,
+                })
+        out.sort(key=lambda x: x["similarity_score"], reverse=True)
+        return out[:n_results]
     def get_combined_context_for_document(
         self, query: str, doc_id: str, max_chunks: int = 4
     ) -> Tuple[str, List[Dict]]:

@@ -37,6 +37,48 @@ def _matches_term(term: str, text: str) -> bool:
         return bool(pat.search(text))
     return _normalize_text(term) in _normalize_text(text)
 
+# ------------------ Автовывод развёрток для коротких акронимов ------------------ #
+
+def _extract_expansions(term: str, chunks: List[Dict]) -> List[str]:
+    """
+    Извлекает вероятные развёртки короткого акронима из уже найденных фрагментов.
+    Поддерживает паттерны:
+      - TERM - Expansion
+      - TERM: Expansion
+      - Expansion (TERM)
+    Возвращает до 5 уникальных кандидатов, очищенных и пригодных для повторного поиска.
+    """
+    if not term or not chunks:
+        return []
+    t = re.escape(term)
+    pat_right = re.compile(rf"\b{t}\b\s*[-–—:]\s*([A-Za-z][A-Za-z \-\/]{{2,60}})")
+    pat_left = re.compile(rf"([A-Za-z][A-Za-z \-\/]{{2,60}})\s*\(\s*{t}\s*\)")
+
+    candidates: List[str] = []
+    for c in chunks:
+        s = (c.get("text") or "")
+        for m in pat_right.findall(s):
+            candidates.append(m.strip())
+        for m in pat_left.findall(s):
+            candidates.append(m.strip())
+
+    # Нормализация и фильтрация: 1–5 слов, без URL/лишнего
+    cleaned: List[str] = []
+    for e in candidates:
+        words = e.split()
+        if 1 <= len(words) <= 5 and not re.search(r"https?://", e, re.IGNORECASE):
+            cleaned.append(e)
+
+    # Уникальные регистронезависимо
+    seen = set()
+    uniq: List[str] = []
+    for e in cleaned:
+        k = e.casefold()
+        if k not in seen:
+            seen.add(k)
+            uniq.append(e)
+    return uniq[:5]
+
 # ------------------ Definitionsextraktion ------------------ #
 
 def _defn_regex_for(term: str) -> re.Pattern:
@@ -247,6 +289,32 @@ async def get_best_chunks_global(query: str, max_chunks: int = 12) -> List[Dict]
             n_results=max_chunks * 6,
         )
         chunks = base or []
+
+        # Жёсткий лексический проход по кратким акронимам: гарантируем присутствие явных совпадений
+        term0 = detect_acronym(query)
+        if term0 and len(term0) <= 5:
+            try:
+                kw = await asyncio.to_thread(vector_store.search_keyword, term0, max(max_chunks * 6, 50), False)
+                if kw:
+                    chunks.extend(kw)
+            except Exception as e:
+                logger.debug("keyword scan warn: %s", e)
+
+        # Авто-расширение для коротких акронимов: дополнительные запросы по извлечённым развёрткам
+        if term0 and len(term0) <= 5 and chunks:
+            try:
+                expansions = _extract_expansions(term0, chunks[:30])
+                if expansions:
+                    for expq in expansions:
+                        extra_e = await asyncio.to_thread(
+                            vector_store.search_global,
+                            expq,
+                            n_results=max(max_chunks * 6, 30),
+                        )
+                        if extra_e:
+                            chunks.extend(extra_e)
+            except Exception as e:
+                logger.debug("Auto-expansion warn: %s", e)
 
         # Progressives Widening für große Korpora
         def _uniq_len(items: List[Dict]) -> int:

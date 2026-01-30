@@ -16,6 +16,15 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 OLLAMA_STREAM = os.getenv("OLLAMA_STREAM", "0") == "1"
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "1024"))
 
+_ALLOWED_LOCAL_OLLAMA = {
+    "http://localhost:11434",
+    "http://127.0.0.1:11434",
+    "http://host.docker.internal:11434",
+}
+if OLLAMA_URL not in _ALLOWED_LOCAL_OLLAMA:
+    raise ValueError(
+        f"Unsupported OLLAMA_URL={OLLAMA_URL!r}. Configure OLLAMA_URL to one of: {sorted(_ALLOWED_LOCAL_OLLAMA)}"
+    )
 TEMPERATURE = 0.1
 TOP_P = 0.9
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "4096"))  # obere Grenze für die Generierung
@@ -86,6 +95,18 @@ async def ask_ollama(question: str, context: str, chunks_info: List[Dict] | None
             logger.debug("LLM user: %s", user_prompt[:800])
         # Dynamische Länge je nach Absicht der Frage
         want_long = _wants_long_answer(question)
+        # Pre‑guard: короткие акронимы — только при наличии явных подсказок в контексте
+        try:
+            from acronym_utils import detect_acronym as _detect_acr
+            _t = _detect_acr(question or "")
+            if _t and len(_t) <= 3:
+                low_ctx = (context or "").lower()
+                has_hint = (_t.lower() in low_ctx) or ("work product" in low_ctx) or ("work products" in low_ctx)
+                if not has_hint:
+                    return "Keine relevanten Informationen im Kontext."
+        except Exception:
+            pass
+
         # Основной вызов — chat; при ошибке fallback на generate
         try:
             response = await _call_ollama_chat(system_prompt, user_prompt, want_long=want_long)
@@ -93,6 +114,8 @@ async def ask_ollama(question: str, context: str, chunks_info: List[Dict] | None
             logger.debug("chat API failed: %s; fallback to generate", chat_err)
             response = await _call_ollama_api(system_prompt, user_prompt, want_long=want_long)
 
+        # Сначала очищаем служебные "Комментарии" / "Keine relevanten …"
+        response = _strip_noinfo_sections(response)
         # «Продолжение» при вероятном обрыве (до 2 раз)
         max_cont = 2
         cont = 0
@@ -110,6 +133,22 @@ async def ask_ollama(question: str, context: str, chunks_info: List[Dict] | None
                 break
             response = (response or "") + ("\n" if response else "") + (more or "")
             cont += 1
+
+        # Hard anti-hallucination guard for obvious out-of-domain markers
+        if response:
+            _ood = (
+                "wordpress",
+                "instagram",
+                "facebook",
+                "tiktok",
+                "twitter",
+                "github",
+                "stackoverflow",
+            )
+            low_resp = response.lower()
+            low_ctx = (context or "").lower()
+            if any(tok in low_resp for tok in _ood) and not any(tok in low_ctx for tok in _ood):
+                return "Keine relevanten Informationen im Kontext."
 
         # Мягкое предупреждение, если всё ещё выглядит обрезанным
         if _is_truncated(response):
@@ -225,8 +264,8 @@ async def _call_ollama_api(system_prompt: str, user_prompt: str, *, want_long: b
         },
         "stream": OLLAMA_STREAM
     }
-    async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-        async with session.post(f"{OLLAMA_URL}/api/generate", json=payload) as resp:
+    async with aiohttp.ClientSession(timeout=TIMEOUT, trust_env=True) as session:
+        async with session.post(f"{OLLAMA_URL}/api/generate", json=payload, allow_redirects=False) as resp:
             if resp.status == 200:
                 # Einige Versionen können text/plain oder unterschiedliche JSON-Formate zurückgeben
                 ctype = resp.headers.get("Content-Type", "")
@@ -268,7 +307,7 @@ async def _call_ollama_api(system_prompt: str, user_prompt: str, *, want_long: b
                 opts = dict(fallback.get("options", {}))
                 opts.pop("num_predict", None)
                 fallback["options"] = opts
-                async with session.post(f"{OLLAMA_URL}/api/generate", json=fallback) as resp2:
+                async with session.post(f"{OLLAMA_URL}/api/generate", json=fallback, allow_redirects=False) as resp2:
                     if resp2.status != 200:
                         txt2 = await resp2.text()
                         raise RuntimeError(f"Ollama API {resp.status}: {txt1} | fallback {resp2.status}: {txt2}")
@@ -299,8 +338,8 @@ async def _call_ollama_chat(system_prompt: str, user_prompt: str, *, want_long: 
         },
         "stream": False
     }
-    async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-        async with session.post(f"{OLLAMA_URL}/api/chat", json=payload) as resp:
+    async with aiohttp.ClientSession(timeout=TIMEOUT, trust_env=False) as session:
+        async with session.post(f"{OLLAMA_URL}/api/chat", json=payload, allow_redirects=False) as resp:
             txt = await resp.text()
             if resp.status != 200:
                 raise RuntimeError(f"Ollama chat {resp.status}: {txt}")
@@ -311,15 +350,28 @@ async def _call_ollama_chat(system_prompt: str, user_prompt: str, *, want_long: 
             except Exception:
                 return txt
 
-def _md_bold_to_html(text: str) -> str:
-    # **bold** → <b>bold</b>
+def _md_bold_to_html_block(text: str) -> str:
+    # **bold** → <b>bold</b> (только для текста вне <pre>)
     try:
         return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text or "")
     except Exception:
         return text or ""
 
-def _md_table_to_pre(text: str) -> str:
-    # Преобразование markdown-таблиц в моноширинный <pre>
+_ATX_HEADER_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$")
+def _md_headings_to_bold_block(text: str) -> str:
+    """Преобразует Markdown‑заголовки вида '# ...' в жирные строки для HTML parse_mode."""
+    out_lines: list[str] = []
+    for raw in (text or "").splitlines():
+        m = _ATX_HEADER_RE.match(raw)
+        if m:
+            body = m.group(2).strip()
+            out_lines.append(f"<b>{html.escape(body)}</b>")
+        else:
+            out_lines.append(raw)
+    return "\n".join(out_lines)
+
+def _md_tables_to_pre_block(text: str) -> str:
+    # Конвертирует markdown-таблицы в моноширинный <pre> (только вне <pre>)
     if not text:
         return ""
     lines = (text or "").splitlines()
@@ -330,11 +382,12 @@ def _md_table_to_pre(text: str) -> str:
         nonlocal out, buf
         if not buf:
             return
-        # Подгон ширины столбцов
         rows = [r for r in buf if "|" in r]
         cols_lists = [row.split("|") for row in rows]
-        # выравнивание по количеству столбцов в первой строке
-        max_cols = max(len(r) for r in cols_lists) if cols_lists else 0
+        if not cols_lists:
+            buf = []
+            return
+        max_cols = max(len(r) for r in cols_lists)
         widths = [0] * max_cols
         for cells in cols_lists:
             for i in range(max_cols):
@@ -342,10 +395,11 @@ def _md_table_to_pre(text: str) -> str:
                 widths[i] = max(widths[i], len(cell.strip()))
         box = []
         for cells in cols_lists:
-            padded = " | ".join(
-                (cells[i].strip() if i < len(cells) else "").ljust(widths[i])
+            esc_cells = [
+                html.escape(cells[i].strip() if i < len(cells) else "")
                 for i in range(max_cols)
-            )
+            ]
+            padded = " | ".join(esc_cells[i].ljust(widths[i]) for i in range(max_cols))
             box.append(padded)
         out.append("<pre>\n" + "\n".join(box) + "\n</pre>")
         buf = []
@@ -359,13 +413,52 @@ def _md_table_to_pre(text: str) -> str:
     flush()
     return "\n".join(out)
 
+def _sanitize_existing_pre(pre_block: str) -> str:
+    # Внутри <pre> не должно быть HTML‑тегов — экранируем содержимое
+    m = re.match(r'(?is)<pre\b[^>]*>([\s\S]*?)</pre>', pre_block)
+    if not m:
+        return pre_block
+    inner = m.group(1)
+    safe = html.escape(inner)
+    return f"<pre>\n{safe}\n</pre>"
+
 def normalize_to_html(text: str) -> str:
-    """Лёгкая нормализация: **…**→<b>…</b>, markdown-таблицы → <pre>…</pre>"""
+    """
+    Нормализация в HTML:
+    - Вне <pre> конвертируем **…** → <b>…</b>, markdown‑таблицы → <pre>.
+    - Внутри существующих <pre> только экранируем содержимое.
+    """
     if not text:
         return ""
-    t = _md_bold_to_html(text)
-    t = _md_table_to_pre(t)
-    return t
+    segments = re.split(r'(?i)(<pre[\s\S]*?</pre>)', text)
+    out = []
+    for seg in segments:
+        if not seg:
+            continue
+        if re.match(r'(?i)^<pre[\s\S]*?</pre>$', seg.strip()):
+            out.append(_sanitize_existing_pre(seg))
+        else:
+            # сначала конвертируем markdown‑заголовки в <b>, затем **…**
+            block = _md_headings_to_bold_block(seg)
+            block = _md_bold_to_html_block(block)
+            block = _md_tables_to_pre_block(block)
+            out.append(block)
+    return "\n".join(out)
+
+_NOINFO_RE = re.compile(r"(?im)^\s*(kommentare?|kommentar|comments?)\s*:.*$|^\s*keine\s+relevanten\s+informationen\s+im\s+kontext\.?\s*$")
+def _strip_noinfo_sections(text: str) -> str:
+    """Удаляет служебные секции вроде 'Kommentare:' и строку 'Keine relevanten Informationen im Kontext.'"""
+    if not text:
+        return text
+    lines = []
+    for line in (text.splitlines()):
+        if _NOINFO_RE.match(line or ""):
+            continue
+        lines.append(line)
+    cleaned = "\n".join(lines)
+    # схлопнуть лишние пустые строки
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
 
 def _normalize_response(text: str) -> str:
     t = "" if text is None else str(text).strip()
@@ -377,7 +470,7 @@ def _normalize_response(text: str) -> str:
 
 async def test_ollama_connection() -> bool:
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5), trust_env=False) as session:
             async with session.get(f"{OLLAMA_URL}/api/tags") as r:
                 return r.status == 200
     except Exception as e:
