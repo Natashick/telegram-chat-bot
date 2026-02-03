@@ -29,6 +29,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app
 COPY . .
 
+# fetch pdfs script
+COPY fetch_pdfs_github.py .
+RUN python fetch_pdfs_github.py
+
 # Non-root user
 RUN useradd -m botuser && chown -R botuser:botuser /app
 USER botuser
