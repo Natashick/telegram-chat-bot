@@ -1,3 +1,4 @@
+# README
 # Telegram PDF Chatbot
 ## Intelligente Dokumentensuche mit lokaler KI
 
@@ -9,19 +10,19 @@ Ein datenschutzfreundlicher Telegram-Bot für **semantische Suche und Frage-Antw
 
 ---
 
-## 🌟 Highlights
+##  Highlights
 
-- 🔍 **Semantische Suche**: Bedeutungsbasiertes Verständnis, nicht nur Keywords
-- 🤖 **Lokales LLM**: Vollständige Datenkontrolle, keine externen APIs
-- 📚 **Multi-Dokument**: Durchsucht mehrere PDFs gleichzeitig
-- 🌐 **Mehrsprachig**: Deutsch & Englisch
-- 🔒 **Datenschutz**: 100% lokale Verarbeitung
-- 📱 **Telegram-Integration**: Nutzen Sie Ihre gewohnte App
-- 🐳 **Docker-Ready**: Einfaches Deployment
+-  **Semantische Suche**: Bedeutungsbasiertes Verständnis, nicht nur Keywords
+-  **Lokales LLM**: Vollständige Datenkontrolle, keine externen APIs
+-  **Multi-Dokument**: Durchsucht mehrere PDFs gleichzeitig
+-  **Mehrsprachig**: Deutsch & Englisch
+-  **Datenschutz**: 100% lokale Verarbeitung
+-  **Telegram-Integration**: Nutzen Sie Ihre gewohnte App
+-  **Docker-Ready**: Einfaches Deployment
 
 ---
 
-## 📖 Dokumentation
+##  Dokumentation
 
 **Vollständige Dokumentation verfügbar in `/docs/`**
 
@@ -29,25 +30,25 @@ Ein datenschutzfreundlicher Telegram-Bot für **semantische Suche und Frage-Antw
 
 | Sie sind... | Starten Sie hier |
 |-------------|------------------|
-| 👤 **Endnutzer** | [Benutzerhandbuch (Deutsch)](docs/customer/BENUTZERHANDBUCH.md) |
-| 🔧 **Administrator** | [Deployment Guide](docs/technical/02_DEPLOYMENT_GUIDE.md) |
-| 💻 **Entwickler** | [System Architecture](docs/technical/01_SYSTEM_ARCHITECTURE.md) |
-| 📊 **Projektmanager** | [Lastenheft](docs/lastenheft/LASTENHEFT.md) |
+|  **Endnutzer** | [Benutzerhandbuch (Deutsch)](docs/customer/BENUTZERHANDBUCH.md) |
+|  **Administrator** | [Deployment Guide](docs/technical/02_DEPLOYMENT_GUIDE.md) |
+|  **Entwickler** | [System Architecture](docs/technical/01_SYSTEM_ARCHITECTURE.md) |
+|  **Projektmanager** | [Lastenheft](docs/lastenheft/LASTENHEFT.md) |
 
 ### Dokumentationsübersicht:
 
-- **[📚 Dokumentations-Index](docs/README.md)** - Kompletter Überblick
-- **[🏗️ System Architecture](docs/technical/01_SYSTEM_ARCHITECTURE.md)** - Technisches Design
-- **[🚀 Deployment Guide](docs/technical/02_DEPLOYMENT_GUIDE.md)** - Installation & Betrieb
-- **[🔌 API Documentation](docs/technical/03_API_DOCUMENTATION.md)** - Schnittstellen-Referenz
-- **[⚙️ Configuration Reference](docs/technical/04_CONFIGURATION.md)** - Alle Konfigurationsoptionen
-- **[📋 Lastenheft](docs/lastenheft/LASTENHEFT.md)** - Anforderungsspezifikation
-- **[📋 Pflichtenheft](docs/pflichtenheft/PFLICHTENHEFT.md)** - Funktionale Spezifikation
-- **[👥 Benutzerhandbuch](docs/customer/BENUTZERHANDBUCH.md)** - Anleitung für Endnutzer
+- **[ Dokumentations-Index](docs/README.md)** - Kompletter Überblick
+- **[ System Architecture](docs/technical/01_SYSTEM_ARCHITECTURE.md)** - Technisches Design
+- **[ Deployment Guide](docs/technical/02_DEPLOYMENT_GUIDE.md)** - Installation & Betrieb
+- **[ API Documentation](docs/technical/03_API_DOCUMENTATION.md)** - Schnittstellen-Referenz
+- **[ Configuration Reference](docs/technical/04_CONFIGURATION.md)** - Alle Konfigurationsoptionen
+- **[ Lastenheft](docs/lastenheft/LASTENHEFT.md)** - Anforderungsspezifikation
+- **[ Pflichtenheft](docs/pflichtenheft/PFLICHTENHEFT.md)** - Funktionale Spezifikation
+- **[ Benutzerhandbuch](docs/customer/BENUTZERHANDBUCH.md)** - Anleitung für Endnutzer
 
 ---
 
-## ⚡ Quick Start
+##  Quick Start
 
 ### Voraussetzungen
 - Docker & Docker Compose
@@ -65,8 +66,8 @@ cd telegram-chat-bot
 cat > .env << 'EOF'
 TELEGRAM_TOKEN=your_bot_token_here
 WEBHOOK_URL=https://your-domain.com/
-OLLAMA_URL=http://host.docker.internal:11434
-OLLAMA_MODEL=qwen2.5:7b-instruct
+OLLAMA_URL="your URL"
+OLLAMA_MODEL="your Modell"
 EOF
 ```
 
@@ -78,7 +79,7 @@ cp /path/to/your/documents/*.pdf pdfs/
 
 ### 4. Ollama starten
 ```bash
-ollama pull qwen2.5:7b-instruct
+ollama pull "your Modell"
 ollama serve
 ```
 
@@ -106,28 +107,28 @@ docker-compose logs -f bot
 
 ---
 
-## ✨ Features im Detail
+##  Features im Detail
 
 ### Kernfunktionen
 
-✅ **Fragen in natürlicher Sprache**
+ **Fragen in natürlicher Sprache**
 - Stellen Sie Fragen wie "Was ist ISO 21434?"
 - Automatische Spracherkennung (DE/EN)
 - Kontextbasierte Antworten
 
-✅ **Intelligente Dokumentensuche**
+ **Intelligente Dokumentensuche**
 - Semantische Suche über alle PDFs
 - Akronym-Erkennung (TARA, CAN, ECU, etc.)
 - Glossar-Priorisierung
 - Multi-Dokument-Retrieval
 
-✅ **Erweiterte Funktionen**
+ **Erweiterte Funktionen**
 - `/screenshot <doc> <page>` - Seite als Bild
 - `/page <doc> <page>` - Textextraktion
 - `/status` - Systemstatus & Indexierung
 - Automatische Pagination bei langen Antworten
 
-✅ **Datenschutz & Sicherheit**
+ **Datenschutz & Sicherheit**
 - 100% lokale LLM-Verarbeitung (Ollama)
 - Keine externen API-Aufrufe (außer Telegram)
 - Telemetrie deaktiviert
@@ -135,7 +136,7 @@ docker-compose logs -f bot
 
 ---
 
-## 🏗️ Architektur
+##  Architektur
 
 ```
 Telegram User
@@ -164,7 +165,7 @@ FastAPI Webhook
 
 ---
 
-## 🔧 Konfiguration
+##  Konfiguration
 
 Alle Konfigurationsoptionen sind über Umgebungsvariablen steuerbar:
 
@@ -172,8 +173,8 @@ Alle Konfigurationsoptionen sind über Umgebungsvariablen steuerbar:
 |----------|---------|--------------|
 | `TELEGRAM_TOKEN` | - | Bot Token (erforderlich) |
 | `WEBHOOK_URL` | - | Webhook URL (erforderlich) |
-| `OLLAMA_URL` | `http://localhost:11434` | Ollama Endpoint |
-| `OLLAMA_MODEL` | `llama3.2:1b` | LLM Modell |
+| `OLLAMA_URL` | `your URL` | Ollama Endpoint |
+| `OLLAMA_MODEL` | `your modell` | LLM Modell |
 | `CHUNK_SIZE` | `800` | Wörter pro Chunk |
 | `MAX_EXCERPTS` | `12` | Max. Chunks an LLM |
 | `OCR_ENABLED` | `0` | OCR aktivieren (1/0) |
@@ -182,7 +183,7 @@ Alle Konfigurationsoptionen sind über Umgebungsvariablen steuerbar:
 
 ---
 
-## 🚀 Deployment-Optionen
+##  Deployment-Optionen
 
 ### Option 1: Docker Compose (Empfohlen)
 ```bash
@@ -204,7 +205,7 @@ python -m uvicorn bot:app --host 0.0.0.0 --port 8000
 
 ---
 
-## 📊 Performance
+##  Performance
 
 | Metrik | Wert | Bedingung |
 |--------|------|-----------|
@@ -218,20 +219,20 @@ python -m uvicorn bot:app --host 0.0.0.0 --port 8000
 
 ---
 
-## 🛡️ Sicherheit & Datenschutz
+##  Sicherheit & Datenschutz
 
-✅ **Keine externe Datenübertragung**
+ **Keine externe Datenübertragung**
 - LLM läuft lokal (Ollama)
 - Embeddings lokal generiert
 - Keine Cloud-API-Aufrufe
 
-✅ **Datenschutz-Features**
+ **Datenschutz-Features**
 - ChromaDB-Telemetrie deaktiviert
 - Token-Zensierung in Logs
 - Webhook-Secret-Validierung
 - Message Protection aktiviert
 
-✅ **DSGVO-konform**
+ **DSGVO-konform**
 - Lokale Speicherung
 - Keine Nutzerprofile
 - Keine Tracking-Mechanismen
@@ -240,7 +241,7 @@ python -m uvicorn bot:app --host 0.0.0.0 --port 8000
 
 ---
 
-## 📱 Nutzung
+##  Nutzung
 
 ### Befehle
 
@@ -264,8 +265,44 @@ python -m uvicorn bot:app --host 0.0.0.0 --port 8000
 **Vollständige Anleitung**: [Benutzerhandbuch](docs/customer/BENUTZERHANDBUCH.md)
 
 ---
+## 🚂 Deployment auf Railway (Cloud)
 
-## 🧪 Testing
+**Kurzanleitung:**
+
+1. Forke oder klone dieses Repo und pushe es zu Railway.
+2. Lege [Environment Variables](.env.example) im Railway Dashboard an — setze echte Werte für deine Secrets!  
+   Genaue Beschreibung aller Optionen siehe [.env.example](./.env.example).
+3. **PDF-Dateien:**
+   - Empfohlen: Halte PDF in einem privaten (nicht öffentlichen!) Repository
+   - Nutze ein Download-Script (siehe [fetch_pdfs_github.py](#)) mit GITHUB_TOKEN, 
+      ODER
+   - Lade PDF einmalig auf ein Railway Volume und passe CHROMA_DB_PATH/Storage-Pfad an.
+4. Klicke auf "Deploy" – Railway baut und startet alles automatisch.
+5. Stelle sicher, dass dein FastAPI/Uvicorn-Server auf `os.environ['PORT']` lauscht.
+6. Nutze die öffentliche URL von Railway als deinen Telegram `WEBHOOK_URL`.
+
+> **Achtung:** Railway setzt den Port per Umgebungsvariable `$PORT`. Stelle sicher, dass dein Webserver diese Variable nutzt!
+>
+> Beispiel in Python:
+> ```python
+> import os
+> port = int(os.environ.get("PORT", 8000))
+> app.run(host="0.0.0.0", port=port)
+> ```
+
+
+"!!! Achtung !!!" 
+$PORT:
+import os
+port = int(os.environ.get("PORT", 8000))
+app.run(host="0.0.0.0", port=port)
+
+
+Dockerfile CMD
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "bot:app", "--bind", "0.0.0.0:${PORT:-8000}"]
+
+
+##  Testing
 
 ```bash
 # Unit tests
@@ -285,7 +322,7 @@ pytest --cov=. --cov-report=html
 
 ---
 
-## 🤝 Beitragen
+##  Beitragen
 
 Beiträge sind willkommen! Bitte beachten Sie:
 
@@ -299,13 +336,13 @@ Beiträge sind willkommen! Bitte beachten Sie:
 
 ---
 
-## 📄 Lizenz
+##  Lizenz
 
 Dieses Projekt ist unter der MIT-Lizenz lizenziert - siehe [LICENSE](LICENSE) für Details.
 
 ---
 
-## 🙏 Danksagungen
+##  Danksagungen
 
 - **Ollama** - Lokales LLM Framework
 - **ChromaDB** - Vector Database
@@ -315,7 +352,7 @@ Dieses Projekt ist unter der MIT-Lizenz lizenziert - siehe [LICENSE](LICENSE) f�
 
 ---
 
-## 📞 Support & Kontakt
+##  Support & Kontakt
 
 - **Dokumentation**: [docs/](docs/README.md)
 - **Issues**: [GitHub Issues](https://github.com/Natashick/telegram-chat-bot/issues)
@@ -323,7 +360,7 @@ Dieses Projekt ist unter der MIT-Lizenz lizenziert - siehe [LICENSE](LICENSE) f�
 
 ---
 
-## 🗺️ Roadmap
+##  Roadmap
 
 ### Geplante Features
 - [ ] Multi-User Support mit Dokumenten-Isolation
@@ -337,16 +374,12 @@ Dieses Projekt ist unter der MIT-Lizenz lizenziert - siehe [LICENSE](LICENSE) f�
 
 ---
 
-## 📈 Changelog
+##  Changelog
 
 ### Version 1.0 (2026-01-27)
-- ✨ Initiale Veröffentlichung
-- 📚 Vollständige Dokumentation (Lastenheft, Pflichtenheft, Benutzerhandbuch)
-- 🔍 Semantische PDF-Suche
-- 🤖 Ollama LLM Integration
-- 🐳 Docker Deployment
-- 🌐 Deutsch/Englisch Support
-
----
-
-**Made with ❤️ for secure, privacy-focused document search**
+-  Initiale Veröffentlichung
+-  Vollständige Dokumentation (Lastenheft, Pflichtenheft, Benutzerhandbuch)
+-  Semantische PDF-Suche
+-  Ollama LLM Integration
+-  Docker Deployment
+-  Deutsch/Englisch Support
