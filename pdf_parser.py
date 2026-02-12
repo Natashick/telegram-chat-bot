@@ -1,16 +1,15 @@
 # pdf_parser.py
-import PyPDF2                 # Primär: Text-Extraktion und Seitenzugriff aus PDFs (ohne OCR)
-import pdfplumber             # Zusätzlich: robuste Tabellen- und Text-Extraktion für komplexe Layouts
+import PyPDF2                 # Primary: Text extraction and page access from PDFs (without OCR)
+import pdfplumber             # Additional: robust table and text extraction for complex layouts
 import pdf2image              # Rendert PDF-Seiten als Bilder (für OCR & Screenshots)
-import pytesseract            # OCR: extrahiert Text aus gerenderten Bildern (Pipeline vorbereitet)
 import re
 import logging
 import asyncio
 from typing import List, Optional, Dict, Tuple
-from PIL import Image         # Bildverarbeitung (Resize, Grayscale, OCR-Vorbereitung)
+from PIL import Image         # Image processing (Resize, Grayscale, OCR preparation)
 import os
 import io
-import unicodedata            # Text-Normalisierung
+import unicodedata            # Text normalization
 from functools import lru_cache
 
 logging.basicConfig(level=logging.INFO)
@@ -20,36 +19,36 @@ OCR_ENABLED = int(os.getenv("OCR_ENABLED", "0"))  # 0 = off, 1 = on
 _OCR_CONCURRENCY = int(os.getenv("OCR_CONCURRENCY", "1"))
 _sema = asyncio.Semaphore(_OCR_CONCURRENCY)
 
-# Heuristiken zur Verkürzung der Definitionszeilen (z. B. „TARA – Bedrohungsanalyse und Risikobewertung“)
+# Heuristics for shortening definition lines (e.g. „TARA – Threat Analysis and Risk Assessment“)
 DEFN_RE = re.compile(r"\b([A-ZÄÖÜ]{2,10})\b\s*(?:[-–—:]\s*|\()", re.IGNORECASE)
 # ============================================================================
 # TEXT NORMALIZATION & PREPROCESSING
 # ============================================================================
 
 class TextNormalizer:
-    """Robuste Normalisierung für saubere Absätze: Zeilenumbrüche, Silbentrennung, Unicode."""
+    """Robust normalization for clean paragraphs: line breaks, syllable splitting, Unicode."""
     
     @staticmethod
     def normalize_text(raw_text: str) -> str:
         """
-        Normalisiert PDF-Text durch mehrere Passes:
-        1. Unicode-Normalisierung (Sonderzeichen)
-        2. Zeilenumbruch-Behandlung (Silbentrennung, Absätze)
-        3. Whitespace-Bereinigung
-        4. Ligatur-Ersetzung
+        Normalizes PDF-text through multiple passes:
+        1. Unicode normalization (special characters)
+        2. Line break handling (syllable splitting, paragraphs)
+        3. Whitespace cleaning
+        4. Ligature replacement
         """
         if not raw_text:
             return ""
         
         text = str(raw_text)
         
-        # 1) Unicode NFD-Normalisierung (z.B. é → e + Akzent kombiniert)
+        # 1) Unicode NFD-normalization (e.g. é → e + accent combined)
         text = unicodedata.normalize("NFKC", text)
         
-        # 2) Zeilenumbruchbehandlung
+        # 2) Line break handling
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         
-        # 2a) Silbentrennung über Zeilenumbrüche:
+        # 2a) Syllable splitting over line breaks:
         # "threat-\nanalysis" → "threatanalysis"
         # "confi-\ndential" → "confidential"
         text = re.sub(
@@ -58,26 +57,26 @@ class TextNormalizer:
             text
         )
         
-        # 2b) Einfache Zeilenumbrüche in Leerzeichen umwandeln
-        # (aber Absatzumbrüche \n\n → \n beibehalten)
+        # 2b) Simple line breaks to spaces
+        # (but paragraph breaks \n\n → \n kept)
         text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
         
-        # 2c) Mehrfache Absatzumbrüche auf max. 2 reduzieren
+        # 2c) Reduce multiple paragraph breaks to max. 2
         text = re.sub(r"\n{3,}", "\n\n", text)
         
-        # 3) Ligatur-Ersetzung (ﬁ→fi, ﬂ→fl, etc.)
+        # 3) Ligature replacement (ﬁ→fi, ﬂ→fl, etc.)
         text = text.replace("ﬁ", "fi").replace("ﬂ", "fl")
         text = text.replace("ﬀ", "ff").replace("ﬂ", "fl")
         text = text.replace("ﬃ", "ffi").replace("ﬄ", "ffl")
         
-        # 4) Whitespace-Bereinigung
+        # 4) Whitespace cleaning
         # Mehrfache Leerzeichen → einfaches Leerzeichen
         text = re.sub(r"[ \t]{2,}", " ", text)
         
-        # Leerzeichen vor Satzzeichen entfernen
+        # Remove spaces before punctuation
         text = re.sub(r"\s+([.,:;!?])", r"\1", text)
         
-        # 5) Führende/abschließende Whitespaces trimmen
+        # 5) Trim leading/trailing whitespaces
         text = text.strip()
         
         return text
@@ -85,8 +84,8 @@ class TextNormalizer:
     @staticmethod
     def split_into_paragraphs(text: str) -> List[str]:
         """
-        Teilt normalisierten Text in saubere Absätze auf.
-        Respektiert Absatzumbrüche (\n\n) und entfernt leere Zeilen.
+        Splits normalized text into clean paragraphs.
+        Respects paragraph breaks (\n\n) and removes empty lines.
         """
         if not text:
             return []
@@ -113,7 +112,7 @@ class OptimizedPDFParser:
     def __init__(self):
         self.default_dpi = 180
         self.fallback_dpi = 240
-        # Ermöglicht das Überschreiben zum Beibehalten kurzer Glossar-ähnlicher Zeilen (0 zum Deaktivieren des Längenfilters)
+        # Allows overriding to keep short glossary-like lines (0 to disable length filter)
         self.min_text_length = int(os.getenv("MIN_PARA_CHARS", "30"))
         self.noise_max_ratio = float(os.getenv("OCR_NOISE_MAX_RATIO", "0.7"))
         self.primary_psm = 6
@@ -342,17 +341,17 @@ class OptimizedPDFParser:
     def _is_usable_para(self, p: str) -> bool:
         if not p:
             return False
-        # Табличные строки (markdown/ASCII) оставляем сразу, чтобы не отбрасывать полезные ячейки
+        # Table rows (markdown/ASCII) keep immediately, so as not to discard useful cells
         if p.count("|") >= 2:
             return True
         cleaned = re.sub(r'\s+', '', p)
-        # Behalten Sie kurze, prägnante Linien bei, auch wenn die Länge gering ist.
+        # Keep short, concise lines, even if the length is low.
         if DEFN_RE.search(p):
             return not self._is_noisy(p)
         # Length threshold (0 disables length filter)
         if self.min_text_length > 0 and len(cleaned) < self.min_text_length:
             return False
-        # Rauschfilter
+        # Noise filter
         if self._is_noisy(p):
             return False
         return True
@@ -374,6 +373,11 @@ class OptimizedPDFParser:
         3. Tesseract OCR mit angepassten PSM-Parametern
         """
         try:
+            try:
+                import pytesseract  # OCR: extracted only when OCR is actually used
+            except Exception as e:
+                logger.error(f"pytesseract import failed: {e}")
+                return ""
             images = await asyncio.to_thread(
                 pdf2image.convert_from_path,
                 pdf_path,
@@ -387,10 +391,10 @@ class OptimizedPDFParser:
             
             image = images[0]
             try:
-                # Bildvorbereitung für robusteres OCR
+                # Image preparation for robust OCR
                 image = self._preprocess_image_for_ocr(image)
                 
-                # Tesseract OCR mit Language + PSM Config
+                # Tesseract OCR with Language + PSM Config
                 text = await asyncio.to_thread(
                     pytesseract.image_to_string,
                     image,
@@ -416,24 +420,24 @@ class OptimizedPDFParser:
         3. Contrast-Enhancement (optional)
         """
         try:
-            # 1) Optional Downscaling zur Reduktion der OCR-Laufzeit
+            # 1) Optional Downscaling to reduce OCR runtime
             if image.width > self.max_width:
                 ratio = self.max_width / image.width
                 new_size = (int(image.width * ratio), int(image.height * ratio))
                 image = image.resize(new_size, Image.Resampling.LANCZOS)
             
-            # 2) In Grayscale konvertieren (robuster für OCR)
+            # 2) Convert to Grayscale (robust for OCR)
             image = image.convert("L")
             
             # 3) Optional: Contrast Enhancement via Bildoperation
-            # (Kann die OCR-Genauigkeit bei schlecht gedruckten Dokumenten verbessern)
-            # ImageEnhance import nur bei Bedarf
+            # (Can improve OCR accuracy for poorly printed documents)
+            # ImageEnhance import only if needed
             try:
                 from PIL import ImageEnhance
                 enhancer = ImageEnhance.Contrast(image)
                 image = enhancer.enhance(1.2)  # +20% Kontrast
             except Exception:
-                pass  # Falls ImageEnhance nicht verfügbar, weitermachen
+                pass  # If ImageEnhance is not available, continue
             
             return image
         except Exception as e:
@@ -456,7 +460,7 @@ class OptimizedPDFParser:
             return False
         return True
 
-# Globальный экземпляр парсера
+# Global instance of parser
 pdf_parser = OptimizedPDFParser()
 
 # ============================================================================
@@ -473,14 +477,14 @@ def extract_paragraphs_from_pdf(pdf_path: str) -> List[str]:
     try:
         _loop = asyncio.get_running_loop()
     except RuntimeError:
-        # Kein aktiver Loop — synchron mit asyncio.run ausführen
+        # No active Loop — run synchronously with asyncio.run
         return asyncio.run(pdf_parser.extract_paragraphs_from_pdf(pdf_path))
-    # Aktiver Loop vorhanden → blockierendes run() nicht erlaubt
+    # Active Loop present → blocking run() not allowed
     raise RuntimeError("extract_paragraphs_from_pdf cannot be used inside an active event loop; use async API")
 
 
-# --- Zusatzfunktionen für Titel/Seiten-Screenshots ---
-# Regex (ohne überflüssige Escape-Zeichen): sucht nach Figure/Abbildung/Table/Tabelle oder nummerierten Überschriften
+# --- Additional functions for Title/Page Screenshots ---
+# Regex (without unnecessary escape characters): searches for Figure/Image/Table/Table or numbered headings
 TITLE_PATTERNS = re.compile(
     r'^(?:fig(?:ure)?|abbildung|table|tabelle)\s*[:\-\.]?\s+|^\d+(?:[.\d]*)\s+',
     re.I
@@ -508,15 +512,15 @@ def extract_titles_from_pdf(pdf_path: str) -> List[Dict]:
                 lines = [l.strip() for l in txt.splitlines() if l.strip()]
                 for line in lines:
                     if TITLE_PATTERNS.match(line):
-                        # Normalisiere und kürze
+                        # Normalize and shorten
                         title = re.sub(r'\s+', ' ', line)[:200]
-                        # Normalisiere auch den Titel
+                        # Normalize the title as well
                         normalizer = TextNormalizer()
                         title = normalizer.normalize_text(title)
                         out.append({"title": title, "page": i + 1, "type": "title"})
     except Exception as e:
         logger.debug(f"extract_titles_from_pdf Fehler (pdfplumber): {e}")
-        # Fallback auf PyPDF2
+        # Fallback to PyPDF2
         try:
             reader = PyPDF2.PdfReader(pdf_path)
             total = len(reader.pages)
@@ -557,7 +561,7 @@ def get_page_image_bytes(pdf_path: str, page_num: int, dpi: int = 180) -> bytes:
 
 
 # ============================================================================
-# PAGE LABELS (sichtbare Seitenbezeichnungen) → PDF-Seitenindex
+# PAGE LABELS (visible page labels) → PDF-page index
 # ============================================================================
 
 _LABEL_CACHE: Dict[str, Dict[str, int]] = {}
@@ -579,7 +583,7 @@ def _int_to_roman(n: int, upper: bool) -> str:
     return s if upper else s.lower()
 
 def _make_label(number: int, style: str | None, prefix: str | None) -> str:
-    # style: '/D' decimal, '/r' roman lower, '/R' roman upper, '/A' '/a' (alphabetic) – wir unterstützen D/r/R
+    # style: '/D' decimal, '/r' roman lower, '/R' roman upper, '/A' '/a' (alphabetic) – we support D/r/R
     if style in ("/r", "r"):
         num = _int_to_roman(number, upper=False)
     elif style in ("/R", "R"):
@@ -612,7 +616,7 @@ def _extract_page_labels(reader: PyPDF2.PdfReader) -> Dict[str, int]:
             nums = list(nums)
         except Exception:
             return {}
-        # nums ist eine Liste: [page_index0, dict0, page_index1, dict1, ...]
+        # nums is a list: [page_index0, dict0, page_index1, dict1, ...]
         total = len(reader.pages)
         runs: List[Tuple[int, dict]] = []
         i = 0
@@ -645,14 +649,14 @@ def _extract_page_labels(reader: PyPDF2.PdfReader) -> Dict[str, int]:
             cur = start_num
             for p in range(start, min(end, total - 1) + 1):
                 label = _make_label(cur, style, prefix)
-                # 1-basierter PDF‑Index
+                # 1-based PDF‑index
                 mapping[str(label).strip()] = p + 1
-                # zusätzlich: reine Zahl ohne Präfix, falls vorhanden
+                # additionally: pure number without prefix, if present
                 try:
                     mapping[str(cur)] = p + 1
                 except Exception:
                     pass
-                # auch römische/arabische Varianten ohne Präфикс зарезервируем
+                # also reserve roman/arabic variants without prefix
                 if style in ("/r", "r", "/R", "R"):
                     mapping[_int_to_roman(cur, upper=(style in ("/R", "R")))] = p + 1
                     mapping[_int_to_roman(cur, upper=False)] = p + 1
@@ -665,27 +669,27 @@ def _extract_page_labels(reader: PyPDF2.PdfReader) -> Dict[str, int]:
 
 def _fallback_offset_map(pdf_path: str, total_pages: int) -> Dict[str, int]:
     """
-    Запасной оффсет для известных файлов: титульные без номера + римские i…vi, затем арабские 1…
-    Для других документов возвращает пустую карту.
+    Spare offset for known files: title pages without numbers + Roman numerals i...vi, then Arabic numerals 1...
+    For other documents, returns a blank card.
     """
     name = os.path.basename(pdf_path)
-    # Значения по задаче: ISO SAE 21434: титульная (без метки) + i..vi = 7 страниц, затем 1..81
+    # Values by task: ISO SAE 21434: title page (without label) + i..vi = 7 pages, then 1..81
     if name == "ISO SAE 21434.pdf":
         title_pages = 1
         roman_pages = 6
-        start_pdf = title_pages + roman_pages  # 1‑based индекс страницы, после которой начинается печатная "1"
+        start_pdf = title_pages + roman_pages  # 1‑based page index, after which the printed "1" starts
         mapping: Dict[str, int] = {}
-        # На практике в данном файле пользователи вводят "ii", "iii", … — устраним систематическое смещение +1.
-        # Маппим: ii→2, iii→3, …, vi→(title_pages + 5) = 6, а при наличии "i" — считаем его как страницу 2.
+        # In practice, users enter "ii", "iii", … — remove systematic offset +1.
+        # Map: ii→2, iii→3, …, vi→(title_pages + 5) = 6, and if "i" is present, consider it as page 2.
         romans = ["i", "ii", "iii", "iv", "v", "vi"]
         for k, r in enumerate(romans, start=0):
-            # титул = 1, желаемое: ii→2 (k=1 ⇒ 1+1=2), …; i (если попросят) тоже даём 2
+            # title = 1, desired: ii→2 (k=1 ⇒ 1+1=2), …; i (if requested) also give 2
             pdf_index = max(2, title_pages + k)
             mapping[r] = pdf_index
             mapping[r.upper()] = pdf_index
-        # Арабские 1.. до конца. Ранее был систематический сдвиг +1, убираем его:
+        # Arabic numerals 1... to the end. Previously, there was a systematic shift +1, remove it:
         printed = 1
-        p = start_pdf  # 1‑based PDF‑индекс первой арабской страницы (без +1)
+        p = start_pdf  # 1‑based PDF‑index of the first Arabic page (without +1)
         while p <= total_pages and printed <= 200:
             mapping[str(printed)] = p
             printed += 1
@@ -695,8 +699,8 @@ def _fallback_offset_map(pdf_path: str, total_pages: int) -> Dict[str, int]:
 
 def get_page_label_map(pdf_path: str) -> Dict[str, int]:
     """
-    Возвращает кэшированную карту: sichtbare Seitenbezeichnung ('i','vi','1','10', ggf. mit Präfix) → 1‑basierter PDF‑Index.
-    """
+        Returns the cached map: visible page label ('i','vi','1','10', possibly with prefix) → 1‑based PDF‑index.
+        """
     try:
         cached = _LABEL_CACHE.get(pdf_path)
         if cached is not None:
@@ -717,27 +721,27 @@ def get_page_label_map(pdf_path: str) -> Dict[str, int]:
 # IMPLEMENTATION SUMMARY
 # ============================================================================
 # 
-# Primär: PyPDF2 (Text-PDFs)
+# Primary: PyPDF2 (Text-PDFs)
 # ├─ Robuste Text-Extraktion aus standardisierten PDF-Strukturen
-# ├─ Direkter Zugriff auf Seiten
-# └─ Optimiert für schnelle Verarbeitung
+# ├─ Direct access to pages
+# └─ Optimized for fast processing
 #
-# Zusätzlich: pdfplumber für robuste Extraktion
-# ├─ Komplexe Layouts und Tabellen
-# ├─ Fallback wenn PyPDF2 unzureichend ist
-# └─ Tabellen-Extraktion + Text
+# Additionally: pdfplumber for robust extraction
+# ├─ Complex layouts and tables
+# ├─ Fallback when PyPDF2 is insufficient
+# └─ Table extraction + text
 #
-# OCR-Pipeline vorbereitet (pytesseract + pdf2image)
-# ├─ Nur wenn OCR_ENABLED=1
-# ├─ Multi-Strategy: Standard DPI → Fallback (höhere DPI + angepasster PSM)
-# ├─ Sperrsemaphor für Concurrency-Kontrolle
-# └─ Async-Processing für Skalierbarkeit
+# OCR-Pipeline prepared (pytesseract + pdf2image)
+# ├─ Only if OCR_ENABLED=1
+# ├─ Multi-Strategy: Standard DPI → Fallback (higher DPI + adjusted PSM)
+# ├─ Semaphore for concurrency control
+# └─ Async-Processing for scalability
 #
-# Normalisierung: Zeilenumbrüche, Silbentrennung, saubere Absätze
-# ├─ TextNormalizer-Klasse für Unicode-Normalisierung (NFD→NFKC)
-# ├─ Behandlung von Silbentrennung über Zeilenumbrüche ("threat-\nanalysis"→"threatanalysis")
-# ├─ Absatz-intelligente Aufteilung (\n\n Respekt)
-# ├─ Ligatur-Ersetzung (ﬁ→fi, ﬂ→fl)
-# └─ Whitespace-Bereinigung (mehrfache Leerzeichen, Satzzeichen)
+# Normalization: Line breaks, syllable splitting, clean paragraphs
+# ├─ TextNormalizer class for Unicode normalization (NFD→NFKC)
+# ├─ Handling of syllable splitting over line breaks ("threat-\nanalysis"→"threatanalysis")
+# ├─ Intelligent paragraph division (\n\n Respect)
+# ├─ Ligature replacement (ﬁ→fi, ﬂ→fl)
+# └─ Whitespace cleaning (multiple spaces, punctuation)
 #
 # ============================================================================

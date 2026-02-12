@@ -1,12 +1,15 @@
 # bot.py
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import logging
 from fastapi import FastAPI, Request, Response
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 import asyncio
 from contextlib import asynccontextmanager
 from llm_client import test_ollama_connection
+
 
 # Konfiguration aus Umgebungsvariablen (kein hartkodiertes Token!)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -19,8 +22,8 @@ PORT = int(os.getenv("PORT", 8000))
 HOST = os.getenv("HOST", "0.0.0.0")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
-if not WEBHOOK_URL:
-    raise RuntimeError("WEBHOOK_URL is required. Polling mode is not supported in this deployment.")
+# if not WEBHOOK_URL:
+#    raise RuntimeError("WEBHOOK_URL is required. Polling mode is not supported in this deployment.")
 
 # Logging konfigurieren
 logging.basicConfig(
@@ -32,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Hier Anwendung erstellen
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 # Um eine Aufgabenexplosion zu vermeiden, muss die parallele Hintergrundverarbeitung von Aktualisierungen begrenzt werden.
-_UPDATE_SEMA = asyncio.Semaphore(int(os.getenv("MAX_UPDATE_CONCURRENCY", "10")))
+_UPDATE_SEMA = asyncio.Semaphore(int(os.getenv("MAX_UPDATE_CONCURRENCY", "2")))
 
 async def _process_update_bg(update: Update):
     async with _UPDATE_SEMA:
@@ -52,6 +55,8 @@ try:
         screenshot_command
     )
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("screenshot", screenshot_command))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -61,6 +66,19 @@ except Exception as e:
 
 async def setup_webhook(application: Application):
     try:
+        if not WEBHOOK_URL or not WEBHOOK_URL.strip():
+            logger.warning("WEBHOOK_URL ist leer. Webhook wird übersprungen; verwende Polling-Modus falls lokal gestartet.")
+            # Still set command menu for polling mode
+            try:
+                await application.bot.set_my_commands([
+                    BotCommand("start", "Startmenü"),
+                    BotCommand("help", "Hilfe"),
+                    BotCommand("status", "Index-Status"),
+                    BotCommand("screenshot", "Screenshot-Modus"),
+                ])
+            except Exception as ce:
+                logger.debug(f"set_my_commands warn: {ce}")
+            return
         webhook_url = f"{WEBHOOK_URL}/webhook/{WEBHOOK_SECRET}"
         await application.bot.set_webhook(
             url=webhook_url,
@@ -70,7 +88,12 @@ async def setup_webhook(application: Application):
         logger.info(f"Webhook eingerichtet: {webhook_url}")
         # Menü-Befehle leeren, чтобы не дублировать с ReplyKeyboard (/start, /screenshot)
         try:
-            await application.bot.set_my_commands([])
+            await application.bot.set_my_commands([
+                BotCommand("start", "Startmenü"),
+                BotCommand("help", "Hilfe"),
+                BotCommand("status", "Index-Status"),
+                BotCommand("screenshot", "Screenshot-Modus"),
+            ])
         except Exception as ce:
             logger.debug(f"set_my_commands warn: {ce}")
     except Exception as e:
@@ -139,5 +162,6 @@ async def health_check():
     }
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host=HOST, port=PORT)
+    # start mit polling mode
+    logger.info("Starting application in polling mode...")
+    application.run_polling()
