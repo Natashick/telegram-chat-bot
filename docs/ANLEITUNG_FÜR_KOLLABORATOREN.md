@@ -1,36 +1,36 @@
-# Инструкция для коллабораторов
-## Работа с репозиторием telegram-chat-bot
+# Anleitung für Kollaboratoren
+## Arbeiten mit dem telegram-chat-bot Repository
 
-**Дата**: 16.02.2026  
-**Для**: Руководителей и коллабораторов проекта
-
----
-
-## Содержание
-
-1. [Первоначальная настройка](#1-первоначальная-настройка)
-2. [Структура репозитория](#2-структура-репозитория)
-3. [Просмотр кода](#3-просмотр-кода)
-4. [Клонирование репозитория](#4-клонирование-репозитория)
-5. [Работа с ветками](#5-работа-с-ветками)
-6. [Внесение изменений](#6-внесение-изменений)
-7. [Просмотр истории изменений](#7-просмотр-истории-изменений)
-8. [Полезные команды](#8-полезные-команды)
+**Datum**: 16.02.2026  
+**Für**: Projektleiter und Kollaboratoren
 
 ---
 
-## 1. Первоначальная настройка
+## Inhaltsverzeichnis
 
-### 1.1 Установка Git
+1. [Ersteinrichtung](#1-ersteinrichtung)
+2. [Repository-Struktur](#2-repository-struktur)
+3. [Code ansehen](#3-code-ansehen)
+4. [Repository klonen](#4-repository-klonen)
+5. [Mit Branches arbeiten](#5-mit-branches-arbeiten)
+6. [Änderungen vornehmen](#6-änderungen-vornehmen)
+7. [Änderungshistorie ansehen](#7-änderungshistorie-ansehen)
+8. [Nützliche Befehle](#8-nützliche-befehle)
+
+---
+
+## 1. Ersteinrichtung
+
+### 1.1 Git installieren
 
 **Windows:**
-1. Скачайте Git с https://git-scm.com/download/win
-2. Установите с настройками по умолчанию
-3. Откройте Git Bash (или командную строку)
+1. Git von https://git-scm.com/download/win herunterladen
+2. Mit Standardeinstellungen installieren
+3. Git Bash (oder Eingabeaufforderung) öffnen
 
 **Mac:**
 ```bash
-# Установка через Homebrew
+# Installation über Homebrew
 brew install git
 ```
 
@@ -40,350 +40,350 @@ sudo apt-get update
 sudo apt-get install git
 ```
 
-### 1.2 Настройка Git
+### 1.2 Git konfigurieren
 
 ```bash
-# Укажите ваше имя и email (как в GitHub)
-git config --global user.name "Ваше Имя"
-git config --global user.email "ваш-email@example.com"
+# Name und E-Mail angeben (wie bei GitHub)
+git config --global user.name "Ihr Name"
+git config --global user.email "ihre-email@example.com"
 
-# Проверка настроек
+# Einstellungen überprüfen
 git config --list
 ```
 
 ---
 
-## 2. Структура репозитория
+## 2. Repository-Struktur
 
-Репозиторий содержит **две основные ветки**:
+Das Repository enthält **zwei Hauptbranches**:
 
-| Ветка | Описание | Технологии |
-|-------|----------|------------|
-| **main** | Локальная PC-версия бота | Ollama (TinyLlama-1.1B), Windows |
-| **oracle-version** | Oracle Cloud версия | Groq API (llama-3.3-70b), Ubuntu 22.04 |
+| Branch | Beschreibung | Technologien |
+|--------|--------------|--------------|
+| **main** | Lokale PC-Version des Bots | Ollama (TinyLlama-1.1B), Windows |
+| **oracle-version** | Oracle Cloud Version | Groq API (llama-3.3-70b), Ubuntu 22.04 |
 
-### Основные папки:
+### Hauptordner:
 
 ```
 telegram-chat-bot/
-├── docs/                    # Документация
-│   ├── customer/           # Пользовательские руководства
-│   ├── technical/          # Техническая документация
-│   ├── lastenheft/         # Требования
-│   └── pflichtenheft/      # Спецификации
-├── tests/                   # Тесты
-├── pdfs/                    # PDF документы для обработки
-├── chroma_db/              # База данных векторов
-├── bot.py                  # Основной файл бота
-├── llm_client.py           # Клиент для LLM
-├── retrieval.py            # Поиск информации
-├── requirements.txt        # Python зависимости
-└── README.md               # Основное описание
+├── docs/                    # Dokumentation
+│   ├── customer/           # Benutzerhandbücher
+│   ├── technical/          # Technische Dokumentation
+│   ├── lastenheft/         # Anforderungen
+│   └── pflichtenheft/      # Spezifikationen
+├── tests/                   # Tests
+├── pdfs/                    # PDF-Dokumente zur Verarbeitung
+├── chroma_db/              # Vektordatenbank
+├── bot.py                  # Haupt-Bot-Datei
+├── llm_client.py           # LLM-Client
+├── retrieval.py            # Informationssuche
+├── requirements.txt        # Python-Abhängigkeiten
+└── README.md               # Hauptbeschreibung
 ```
 
 ---
 
-## 3. Просмотр кода
+## 3. Code ansehen
 
-### 3.1 Через веб-интерфейс GitHub
+### 3.1 Über GitHub-Weboberfläche
 
-1. Откройте https://github.com/Natashick/telegram-chat-bot
-2. Выберите нужную ветку в выпадающем меню (main или oracle-version)
-3. Просматривайте файлы, кликая на них
+1. Öffnen Sie https://github.com/Natashick/telegram-chat-bot
+2. Wählen Sie den gewünschten Branch im Dropdown-Menü (main oder oracle-version)
+3. Durchsuchen Sie die Dateien durch Anklicken
 
-### 3.2 Просмотр истории изменений
+### 3.2 Änderungshistorie ansehen
 
-1. Перейдите на вкладку **Commits**
-2. Нажмите на любой коммит, чтобы увидеть изменения
-3. Зеленым показаны добавления, красным - удаления
+1. Wechseln Sie zum Tab **Commits**
+2. Klicken Sie auf einen Commit, um die Änderungen zu sehen
+3. Grün zeigt Hinzufügungen, Rot zeigt Löschungen
 
-### 3.3 Просмотр веток
+### 3.3 Branches ansehen
 
 https://github.com/Natashick/telegram-chat-bot/branches
 
 ---
 
-## 4. Клонирование репозитория
+## 4. Repository klonen
 
-### 4.1 Клонирование main ветки (PC версия)
+### 4.1 Main-Branch klonen (PC-Version)
 
 ```bash
-# Перейдите в нужную папку
+# In gewünschten Ordner wechseln
 cd ~/Documents/Projects
 
-# Клонируйте репозиторий
+# Repository klonen
 git clone https://github.com/Natashick/telegram-chat-bot.git
 
-# Перейдите в папку
+# In Ordner wechseln
 cd telegram-chat-bot
 ```
 
-### 4.2 Клонирование oracle-version ветки
+### 4.2 Oracle-version Branch klonen
 
 ```bash
-# Клонировать сразу oracle-version
+# Direkt oracle-version klonen
 git clone -b oracle-version https://github.com/Natashick/telegram-chat-bot.git telegram-chat-bot-oracle
 
-# Или после клонирования переключиться:
+# Oder nach dem Klonen wechseln:
 cd telegram-chat-bot
 git checkout oracle-version
 ```
 
 ---
 
-## 5. Работа с ветками
+## 5. Mit Branches arbeiten
 
-### 5.1 Просмотр доступных веток
+### 5.1 Verfügbare Branches ansehen
 
 ```bash
-# Локальные ветки
+# Lokale Branches
 git branch
 
-# Все ветки (включая удаленные)
+# Alle Branches (inkl. remote)
 git branch -a
 ```
 
-### 5.2 Переключение между ветками
+### 5.2 Zwischen Branches wechseln
 
 ```bash
-# Переключиться на main (PC версия)
+# Zu main wechseln (PC-Version)
 git checkout main
 
-# Переключиться на oracle-version (Cloud версия)
+# Zu oracle-version wechseln (Cloud-Version)
 git checkout oracle-version
 
-# Проверить текущую ветку
+# Aktuellen Branch prüfen
 git branch
 ```
 
-### 5.3 Обновление информации о ветках
+### 5.3 Branch-Informationen aktualisieren
 
 ```bash
-# Получить последние изменения с GitHub
+# Neueste Änderungen von GitHub holen
 git fetch origin
 
-# Обновить текущую ветку
+# Aktuellen Branch aktualisieren
 git pull
 ```
 
 ---
 
-## 6. Внесение изменений
+## 6. Änderungen vornehmen
 
-### 6.1 Просмотр статуса
+### 6.1 Status ansehen
 
 ```bash
-# Посмотреть измененные файлы
+# Geänderte Dateien ansehen
 git status
 
-# Посмотреть конкретные изменения
+# Spezifische Änderungen ansehen
 git diff
 ```
 
-### 6.2 Создание изменений
+### 6.2 Änderungen erstellen
 
 ```bash
-# 1. Внесите изменения в файлы (например, отредактируйте bot.py)
+# 1. Nehmen Sie Änderungen in Dateien vor (z.B. bot.py bearbeiten)
 
-# 2. Добавьте файлы в staging
-git add bot.py                    # Добавить один файл
-git add .                         # Добавить все измененные файлы
+# 2. Dateien zum Staging hinzufügen
+git add bot.py                    # Eine Datei hinzufügen
+git add .                         # Alle geänderten Dateien hinzufügen
 
-# 3. Создайте коммит с описанием
-git commit -m "Краткое описание изменений"
+# 3. Commit mit Beschreibung erstellen
+git commit -m "Kurze Beschreibung der Änderungen"
 
-# 4. Отправьте на GitHub
-git push origin main              # Для main ветки
-git push origin oracle-version    # Для oracle-version ветки
+# 4. Zu GitHub hochladen
+git push origin main              # Für main Branch
+git push origin oracle-version    # Für oracle-version Branch
 ```
 
-### 6.3 Пример рабочего процесса
+### 6.3 Beispiel-Workflow
 
 ```bash
-# Убедитесь, что на нужной ветке
+# Sicherstellen, dass Sie im richtigen Branch sind
 git checkout oracle-version
 
-# Обновите локальную версию
+# Lokale Version aktualisieren
 git pull
 
-# Внесите изменения в файлы
-# (редактируйте в вашем редакторе)
+# Änderungen in Dateien vornehmen
+# (in Ihrem Editor bearbeiten)
 
-# Проверьте изменения
+# Änderungen überprüfen
 git status
 git diff
 
-# Добавьте и закоммитьте
+# Hinzufügen und committen
 git add docs/customer/BENUTZERHANDBUCH_ORACLE.md
-git commit -m "docs: обновление руководства пользователя для Oracle версии"
+git commit -m "docs: Benutzerhandbuch für Oracle-Version aktualisiert"
 
-# Отправьте на GitHub
+# Zu GitHub hochladen
 git push origin oracle-version
 ```
 
 ---
 
-## 7. Просмотр истории изменений
+## 7. Änderungshistorie ansehen
 
-### 7.1 Просмотр коммитов
+### 7.1 Commits ansehen
 
 ```bash
-# Последние 10 коммитов
+# Letzte 10 Commits
 git log --oneline -10
 
-# Подробная история
+# Detaillierte Historie
 git log
 
-# История конкретного файла
+# Historie einer bestimmten Datei
 git log -- bot.py
 ```
 
-### 7.2 Просмотр изменений в коммите
+### 7.2 Änderungen in einem Commit ansehen
 
 ```bash
-# Показать изменения в конкретном коммите
+# Änderungen in einem bestimmten Commit anzeigen
 git show <commit-hash>
 
-# Пример:
+# Beispiel:
 git show 0c40524
 ```
 
-### 7.3 Сравнение веток
+### 7.3 Branches vergleichen
 
 ```bash
-# Показать различия между main и oracle-version
+# Unterschiede zwischen main und oracle-version anzeigen
 git diff main..oracle-version
 
-# Список файлов, которые отличаются
+# Liste der Dateien, die sich unterscheiden
 git diff --name-only main..oracle-version
 ```
 
 ---
 
-## 8. Полезные команды
+## 8. Nützliche Befehle
 
-### 8.1 Информация о репозитории
+### 8.1 Repository-Informationen
 
 ```bash
-# Показать удаленные репозитории
+# Remote-Repositories anzeigen
 git remote -v
 
-# Показать информацию о ветках
+# Branch-Informationen anzeigen
 git branch -vv
 
-# Показать последние изменения
+# Letzte Änderungen anzeigen
 git log --oneline --graph --all --decorate -10
 ```
 
-### 8.2 Отмена изменений
+### 8.2 Änderungen rückgängig machen
 
 ```bash
-# Отменить изменения в файле (до add)
-git checkout -- имя_файла
+# Änderungen in einer Datei rückgängig machen (vor add)
+git checkout -- dateiname
 
-# Убрать файл из staging (после add, до commit)
-git reset HEAD имя_файла
+# Datei aus Staging entfernen (nach add, vor commit)
+git reset HEAD dateiname
 
-# Отменить последний коммит (изменения останутся)
+# Letzten Commit rückgängig machen (Änderungen bleiben)
 git reset --soft HEAD~1
 
-# Полностью отменить последний коммит (ОСТОРОЖНО!)
+# Letzten Commit vollständig rückgängig machen (VORSICHT!)
 git reset --hard HEAD~1
 ```
 
-### 8.3 Работа с GitHub через веб-интерфейс
+### 8.3 Mit GitHub über Weboberfläche arbeiten
 
-**Создание изменений без клонирования:**
+**Änderungen ohne Klonen erstellen:**
 
-1. Откройте нужный файл на GitHub
-2. Нажмите кнопку **Edit** (иконка карандаша)
-3. Внесите изменения
-4. Заполните описание коммита внизу страницы
-5. Нажмите **Commit changes**
+1. Öffnen Sie die gewünschte Datei auf GitHub
+2. Klicken Sie auf **Edit** (Stift-Symbol)
+3. Nehmen Sie Änderungen vor
+4. Füllen Sie die Commit-Beschreibung unten aus
+5. Klicken Sie auf **Commit changes**
 
-**Создание Pull Request:**
+**Pull Request erstellen:**
 
-1. Перейдите на вкладку **Pull requests**
-2. Нажмите **New pull request**
-3. Выберите ветки для сравнения
-4. Добавьте описание
-5. Нажмите **Create pull request**
+1. Wechseln Sie zum Tab **Pull requests**
+2. Klicken Sie auf **New pull request**
+3. Wählen Sie die Branches zum Vergleichen
+4. Fügen Sie eine Beschreibung hinzu
+5. Klicken Sie auf **Create pull request**
 
 ---
 
-## 9. Быстрый старт для руководителя
+## 9. Schnellstart für Projektleiter
 
-### Только просмотр (без установки):
+### Nur Ansehen (ohne Installation):
 
-✅ Используйте веб-интерфейс GitHub: https://github.com/Natashick/telegram-chat-bot
+✅ Nutzen Sie die GitHub-Weboberfläche: https://github.com/Natashick/telegram-chat-bot
 
-### Для работы с кодом локально:
+### Für lokale Arbeit mit Code:
 
 ```bash
-# Шаг 1: Установите Git (см. раздел 1.1)
+# Schritt 1: Git installieren (siehe Abschnitt 1.1)
 
-# Шаг 2: Клонируйте репозиторий
+# Schritt 2: Repository klonen
 git clone https://github.com/Natashick/telegram-chat-bot.git
 cd telegram-chat-bot
 
-# Шаг 3: Просмотрите ветки
+# Schritt 3: Branches ansehen
 git branch -a
 
-# Шаг 4: Переключитесь на нужную ветку
-git checkout oracle-version    # Для Oracle версии
-# или
-git checkout main              # Для PC версии
+# Schritt 4: Zum gewünschten Branch wechseln
+git checkout oracle-version    # Für Oracle-Version
+# oder
+git checkout main              # Für PC-Version
 
-# Шаг 5: При необходимости обновите
+# Schritt 5: Bei Bedarf aktualisieren
 git pull
 ```
 
 ---
 
-## 10. Поддержка и вопросы
+## 10. Support und Fragen
 
 **GitHub Issues**: https://github.com/Natashick/telegram-chat-bot/issues
 
-**Контакты разработчика**: @Natashick
+**Entwickler-Kontakt**: @Natashick
 
-**Документация проекта**: `/docs` папка в репозитории
-
----
-
-## Приложение A: Глоссарий
-
-| Термин | Описание |
-|--------|----------|
-| **Repository (репозиторий)** | Хранилище кода проекта |
-| **Branch (ветка)** | Отдельная версия кода |
-| **Commit (коммит)** | Сохранение изменений с описанием |
-| **Clone (клонирование)** | Копирование репозитория на локальный компьютер |
-| **Pull** | Получение обновлений с GitHub |
-| **Push** | Отправка изменений на GitHub |
-| **Merge** | Объединение изменений из разных веток |
-| **Pull Request** | Запрос на проверку и слияние изменений |
-| **Collaborator** | Пользователь с правами изменения репозитория |
+**Projektdokumentation**: `/docs` Ordner im Repository
 
 ---
 
-## Приложение B: Рекомендации
+## Anhang A: Glossar
 
-### Для просмотра кода:
-- Используйте веб-интерфейс GitHub - не требует установки
-- Используйте VS Code с расширением GitHub для удобной навигации
-
-### Для внесения изменений:
-- Всегда делайте `git pull` перед началом работы
-- Пишите понятные описания коммитов
-- Используйте префиксы: `feat:`, `fix:`, `docs:`, `refactor:`
-- Тестируйте изменения локально перед push
-
-### Для безопасности:
-- Не коммитьте API ключи и пароли
-- Используйте `.env` файлы (они в `.gitignore`)
-- Регулярно делайте backup важных веток
+| Begriff | Beschreibung |
+|---------|--------------|
+| **Repository** | Code-Speicher des Projekts |
+| **Branch** | Separate Version des Codes |
+| **Commit** | Speichern von Änderungen mit Beschreibung |
+| **Clone** | Repository auf lokalen Computer kopieren |
+| **Pull** | Updates von GitHub holen |
+| **Push** | Änderungen zu GitHub hochladen |
+| **Merge** | Änderungen aus verschiedenen Branches zusammenführen |
+| **Pull Request** | Anfrage zur Überprüfung und Zusammenführung von Änderungen |
+| **Collaborator** | Benutzer mit Änderungsrechten für das Repository |
 
 ---
 
-**Версия документа**: 1.0  
-**Последнее обновление**: 16.02.2026
+## Anhang B: Empfehlungen
+
+### Zum Code-Ansehen:
+- Nutzen Sie die GitHub-Weboberfläche - keine Installation erforderlich
+- Nutzen Sie VS Code mit GitHub-Erweiterung für komfortable Navigation
+
+### Für Änderungen:
+- Führen Sie immer `git pull` vor Arbeitsbeginn aus
+- Schreiben Sie verständliche Commit-Beschreibungen
+- Verwenden Sie Präfixe: `feat:`, `fix:`, `docs:`, `refactor:`
+- Testen Sie Änderungen lokal vor dem Push
+
+### Für Sicherheit:
+- Committen Sie keine API-Schlüssel und Passwörter
+- Verwenden Sie `.env`-Dateien (diese sind in `.gitignore`)
+- Erstellen Sie regelmäßig Backups wichtiger Branches
+
+---
+
+**Dokumentversion**: 1.0  
+**Letzte Aktualisierung**: 16.02.2026
