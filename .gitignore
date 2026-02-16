@@ -28,6 +28,30 @@ ENV/
 env.bak/
 venv.bak/
 
+# ===========================
+# SECRETS AND CREDENTIALS
+# ===========================
+.env
+# Never commit real API keys/tokens!
+# Use .env.example as template
+
+# ===========================
+# DATABASES AND STORAGE
+# ===========================
+chroma_db/
+# ChromaDB persistent storage
+*.db
+*.sqlite
+*.sqlite3
+
+# PDFs (often confidential)
+pdfs/
+*.pdf
+
+# ===========================
+# SYSTEM AND IDE
+# ===========================
+
 # IDE
 .vscode/
 .idea/

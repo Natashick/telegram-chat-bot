@@ -5,10 +5,15 @@ services:
     image: mein-bot:latest
     env_file:
       - .env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
       WEBHOOK_URL: ${WEBHOOK_URL}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-secret123}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
       # OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}  # wird nicht mit Satztransformatoren verwendet
@@ -26,7 +31,7 @@ services:
       OCR_NOISE_MAX_RATIO: ${OCR_NOISE_MAX_RATIO:-0.7}
       INDEX_CONCURRENCY: ${INDEX_CONCURRENCY:-1}
       MAX_UPDATE_CONCURRENCY: ${MAX_UPDATE_CONCURRENCY:-2}
-      EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE:-16}
+      EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE:-4}
       GUNICORN_WORKERS: "1"
       # Vollständige Indizierung standardmäßig erzwingen
       MAX_INDEX_CHUNKS: "0"
@@ -42,6 +47,12 @@ services:
       - ./chroma_db:/app/chroma_db
     ports:
       - "8000:8000"
-    mem_limit: 12g
     cpus: "2.0"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 750M
+          cpus: "1.5"  # Оставляем запас для системы и Ollama
+        reservations:
+          memory: 300M

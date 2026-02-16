@@ -8,10 +8,12 @@ import logging
 import re
 import threading
 from typing import Dict, List, Optional, Tuple
+logging.getLogger('chromadb.telemetry').setLevel(logging.ERROR)
 
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
+import logging
 
 from acronym_utils import detect_acronym  # gemeinsame Logik mit retrieval
 
@@ -225,14 +227,20 @@ class VectorStore:
                     total_added += len(d)
                 except Exception as ex:
                     logger.warning("collection.add failed @%s: %s", i, ex)
-                finally:
-                    try:
+
+            del embeddings
+            del to_use
+            del metadatas
+            gc.collect()
+
+            try:
                         # touch storage & persist
-                        self.collection.count()
-                        self.client.persist()
-                    except Exception:
-                        pass
-                    gc.collect()
+                self.collection.count()
+                self.client.persist()
+            except Exception:
+                pass
+                   
+                    
 
             logger.info("Added %s chunks for %s", total_added, doc_id)
         return True
@@ -295,7 +303,7 @@ class VectorStore:
             acr_cf = acr.casefold() if acr else None
 
             # Mehr für die Nachfilterung abrufen
-            top_k = max(50, n_results * 6)
+            top_k = max(10, n_results * 2)
             thr = (
                 self.min_sim_threshold
                 if similarity_threshold is None
@@ -444,7 +452,7 @@ class VectorStore:
             acr = detect_acronym(query)         # Akronym erkennen (z. B. "TARA", "CAN, "CAL")
             acr_cf = acr.casefold() if acr else None  # casefolded Vergleichsform
 
-            top_k = max(50, n_results * 6)      # Erst großzügig viele Kandidaten holen
+            top_k = max(10, n_results * 2)      # Erst großzügig viele Kandidaten holen
             thr = (                              # Schwellwert für Ähnlichkeit bestimmen
                 self.min_sim_threshold
                 if similarity_threshold is None
@@ -566,11 +574,24 @@ class VectorStore:
             return []
         try:
             needle = term if case_sensitive else term.lower()
-            where_doc = {"$contains": term if case_sensitive else needle}
-            res = self.collection.get(where_document=where_doc, include=["documents", "metadatas"])
+            candidates = [term] if case_sensitive else [term, term.lower(), term.upper()]
+            res = None
+            for cand in candidates:
+                if not cand:
+                    continue
+                where_doc = {"$contains": cand}
+                try:
+                    res = self.collection.get(where_document=where_doc, include=["documents", "metadatas"])
+                except Exception as e:
+                    logger.debug("search_keyword get failed for %s: %s", cand, e)
+                    res = None
+                docs_try = (res or {}).get("documents", [[]])
+                if isinstance(docs_try, list) and docs_try and (docs_try[0] if isinstance(docs_try[0], list) else docs_try):
+                    break
         except Exception as e:
             logger.debug("search_keyword get failed: %s", e)
             return []
+        res = res or {"documents": [[]], "metadatas": [[]]}
         docs = res.get("documents", [[]])
         metas = res.get("metadatas", [[]])
         if isinstance(docs, list) and docs and isinstance(docs[0], list):
@@ -613,8 +634,9 @@ class VectorStore:
         )
         return (context, chunks)
 
-    def query(self, question: str, top_k: int = 5) -> Tuple[List[str], List[Dict]]:
+    def query(self, question: str, top_k: int = 3) -> Tuple[List[str], List[Dict]]:
         """Globale semantische Suche über alle Dokumente."""
+        top_k = min(top_k, 5)
         if not question:
             return ([], [])
         q_emb = self._embed([question])[0]

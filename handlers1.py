@@ -67,8 +67,9 @@ class _CensorFilter(logging.Filter):
 
 logger.addFilter(_CensorFilter())
 
-MAX_EXCERPTS = int(os.getenv("MAX_EXCERPTS", "12"))
+MAX_EXCERPTS = int(os.getenv("MAX_EXCERPTS", "2"))
 PROTECT_CONTENT = os.getenv("PROTECT_CONTENT", "1") == "1"
+ACRONYM_STRICT = os.getenv("ACRONYM_STRICT", "1") == "1"
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PDF_DIR = os.getenv('PDF_DIR', _SCRIPT_DIR)
@@ -140,7 +141,7 @@ async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Keine PDFs gefunden. Bitte lade zuerst PDFs hoch.", disable_web_page_preview=True)
         return
     main_kb = ReplyKeyboardMarkup(
-        [[KeyboardButton("/start"), KeyboardButton("/screenshot")]],
+        [[KeyboardButton("/start"), KeyboardButton("/help")], [KeyboardButton("/status"), KeyboardButton("/screenshot")]],
         resize_keyboard=True,
         one_time_keyboard=False,
         is_persistent=True
@@ -150,6 +151,7 @@ async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         "So funktioniert es:\n"
         "1️⃣ Drücke /Start.\n"
         "2️⃣ Stelle deine Frage oder nutze /screenshot für Seiten/Bilder/Tabellen.\n"
+        "3️⃣ /status zeigt den Index-Status, /help zeigt die Hilfe.\n"
         "⚠️ Hinweis: Die Dokumenteninhalte sind vertraulich. Bitte keine Screenshots speichern oder weitergeben.",
         reply_markup=main_kb,
         disable_web_page_preview=True,
@@ -157,7 +159,7 @@ async def start_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     main_kb = ReplyKeyboardMarkup(
-        [[KeyboardButton("/start"), KeyboardButton("/screenshot")]],
+        [[KeyboardButton("/start"), KeyboardButton("/help")], [KeyboardButton("/status"), KeyboardButton("/screenshot")]],
         resize_keyboard=True,
         one_time_keyboard=False,
         is_persistent=True
@@ -586,7 +588,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         all_chunks = await get_best_chunks_global(user_question, max_chunks=MAX_EXCERPTS)
     except Exception as e:
-        logger.debug("Global retrieval error: %s", e)
+        logger.error("Global retrieval error: %s", e)
+        all_chunks = []
 
 
     # Fallback: wenn zu wenige globale Ergebnisse vorliegen, pro Dokument parallel abfragen
@@ -664,6 +667,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with contextlib.suppress(Exception):
                     await task2
             return
+        # For very short acronyms (e.g. WP/RQ), optionally require an explicit match
+        if ACRONYM_STRICT and len(term) <= 3:
+            await update.message.reply_text("Keine relevanten Informationen im Kontext.")
+            return
+
+    # Extra guard (optional): if query contains a short acronym token not present in chunks, refuse
+    if ACRONYM_STRICT:
+        short_tokens = [t.upper() for t in re.findall(r"\b[A-Za-z]{2,3}\b", user_question or "")]
+        if short_tokens:
+            joined = " ".join((c.get("text") or "") for c in (all_chunks or []))
+            joined_u = joined.upper()
+            if not any(t in joined_u for t in short_tokens):
+                await update.message.reply_text("Keine relevanten Informationen im Kontext.")
+                return
 
     # Fallback: kombinierte Auszüge vorbereiten und LLM mit strengem Prompt aufrufen
     # Anzahl der gesendeten Auszüge begrenzen
