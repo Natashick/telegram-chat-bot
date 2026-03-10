@@ -1,12 +1,12 @@
 # Oracle Cloud Version - Branch Information
 
-## 🌩️ oracle-version Branch
+## oracle-version Branch
 
 Diese Branch enthält die **Oracle Cloud Free Tier** optimierte Version des Telegram PDF Chatbots mit Groq API Integration.
 
 ---
 
-## 🔀 Branch-Unterschiede
+## Branch-Unterschiede
 
 ### Main Branch (Lokale PC-Version)
 - **LLM**: Ollama + TinyLlama-1.1B (lokal)
@@ -26,7 +26,7 @@ Diese Branch enthält die **Oracle Cloud Free Tier** optimierte Version des Tele
 
 ---
 
-## 📦 Dateiunterschiede
+## Dateiunterschiede
 
 ### Geänderte Dateien in oracle-version:
 
@@ -48,7 +48,7 @@ Diese Branch enthält die **Oracle Cloud Free Tier** optimierte Version des Tele
 
 ---
 
-## 🚀 Schnellstart für oracle-version
+## Schnellstart für oracle-version
 
 ### Voraussetzungen:
 1. **Oracle Cloud Free Tier Account** (always-free.oracle.com)
@@ -113,7 +113,7 @@ sudo journalctl -u tgbot.service -f  # Logs anzeigen
 
 ---
 
-## 🔑 Wichtige Umgebungsvariablen
+## Wichtige Umgebungsvariablen
 
 ```bash
 # .env für oracle-version
@@ -129,7 +129,7 @@ ACRONYM_STRICT=0                      # ← 0 für flexible Akronym-Erkennung
 
 ---
 
-## 📊 Performance-Vergleich
+## Performance-Vergleich
 
 | Metrik | main (lokal) | oracle-version (cloud) |
 |--------|-------------|----------------------|
@@ -143,7 +143,7 @@ ACRONYM_STRICT=0                      # ← 0 für flexible Akronym-Erkennung
 
 ---
 
-## 🐛 Bugfixes in oracle-version
+## Bugfixes in oracle-version
 
 1. **UnboundLocalError** in `handlers1.py` - `all_chunks` undefined in exception handler → Fixed
 2. **Webhook crash** bei leerem `WEBHOOK_URL` → Guard hinzugefügt
@@ -155,7 +155,7 @@ ACRONYM_STRICT=0                      # ← 0 für flexible Akronym-Erkennung
 
 ---
 
-## 🆕 Neue Features in oracle-version
+## Neue Features in oracle-version
 
 ### 1. Groq API Integration
 - 40x schnellere Antworten (2-5s statt 60-120s)
@@ -190,7 +190,7 @@ acronym_logic = (
 
 ---
 
-## 🔧 Deployment auf Oracle Cloud
+## Deployment auf Oracle Cloud
 
 ### Schritt-für-Schritt:
 
@@ -248,7 +248,7 @@ acronym_logic = (
 
 ---
 
-## 📚 Dokumentation
+## Dokumentation
 
 ### Für Endnutzer:
 - **[Benutzerhandbuch Oracle Version](docs/customer/BENUTZERHANDBUCH_ORACLE.md)**
@@ -264,14 +264,14 @@ acronym_logic = (
 
 ---
 
-## 🔐 Sicherheitshinweise
+## Sicherheitshinweise
 
-### ⚠️ NIEMALS committen:
+### NIEMALS committen:
 - `.env` (enthält Secrets)
 - `chroma_db/` (lokale Datenbank)
 - `pdfs/` (oft vertraulich)
 
-### ✅ Sicher committen:
+### Sicher committen:
 - `.env.example` (Template ohne Secrets)
 - Alle `.py` Dateien
 - `requirements.txt`
@@ -290,7 +290,7 @@ git filter-branch --force --index-filter \
 
 ---
 
-## 🤝 Contribution Guidelines
+## Contribution Guidelines
 
 ### Branch-Strategie:
 - `main` - Lokale PC-Version (Ollama)
@@ -318,7 +318,7 @@ git filter-branch --force --index-filter \
 
 ---
 
-## 📞 Support
+## Support
 
 ### Bei Problemen:
 1. **Logs prüfen**:
@@ -341,7 +341,7 @@ git filter-branch --force --index-filter \
 
 ---
 
-## 📝 Changelog
+## Changelog
 
 ### v2.0 (12.02.2026) - Oracle Cloud Edition
 - ✅ Groq API Integration
@@ -359,6 +359,6 @@ git filter-branch --force --index-filter \
 
 ---
 
-**Happy Hacking! 🚀**
+**Happy Hacking!**
 
 Für Fragen: Öffne ein Issue oder kontaktiere den Maintainer.
