@@ -265,7 +265,7 @@ python -m uvicorn bot:app --host 0.0.0.0 --port 8000
 **Vollständige Anleitung**: [Benutzerhandbuch](docs/customer/BENUTZERHANDBUCH.md)
 
 ---
-## 🚂 Deployment auf Railway (Cloud)
+## Deployment auf Railway (Cloud)
 
 **Kurzanleitung:**
 
@@ -383,3 +383,4 @@ Dieses Projekt ist unter der MIT-Lizenz lizenziert - siehe [LICENSE](LICENSE) f�
 -  Ollama LLM Integration
 -  Docker Deployment
 -  Deutsch/Englisch Support
+
