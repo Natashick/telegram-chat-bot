@@ -344,18 +344,18 @@ git filter-branch --force --index-filter \
 ## Changelog
 
 ### v2.0 (12.02.2026) - Oracle Cloud Edition
-- ✅ Groq API Integration
-- ✅ Akronym-Definitionen in Prompts
-- ✅ Tabellen-Formatierung Fix
-- ✅ Bot-Menü
-- ✅ ACRONYM_STRICT Flag
-- ✅ Performance: 95% schneller
+-  Groq API Integration
+-  Akronym-Definitionen in Prompts
+-  Tabellen-Formatierung Fix
+-  Bot-Menü
+-  ACRONYM_STRICT Flag
+-  Performance: 95% schneller
 
 ### v1.0 (27.01.2024) - Initial Release
-- ✅ Ollama + TinyLlama lokal
-- ✅ ChromaDB Indexierung
-- ✅ Screenshot-Funktion
-- ✅ Multi-PDF Support
+-  Ollama + TinyLlama lokal
+-  ChromaDB Indexierung
+-  Screenshot-Funktion
+-  Multi-PDF Support
 
 ---
 
